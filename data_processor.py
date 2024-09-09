@@ -38,3 +38,15 @@ class DataProcessor:
         """Réinitialise les données pour un nouveau cycle."""
         self.current_cycle_data = []
         self.is_in_cycle = False
+
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = VisualizationWidget()
+    window.show()
+
+    processor = DataProcessor()
+    processor.start_new_cycle()
+
+    sys.exit(app.exec_())

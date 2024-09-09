@@ -69,7 +69,8 @@ class DataReceiver(QObject):
         print(last_vertical_force_mean, vertical_force_mean)
         if vertical_force_mean > self.threshold > last_vertical_force_mean:
             # Détecte le début d'un nouveau cycle, le traitement des données se déclenche
-            DataProcessor.start_new_cycle(self) # Appelle la méthode de traitement du cycle
+            processor = DataProcessor()
+            processor.start_new_cycle()
             self.reset_data()  # Réinitialise les données pour le prochain cycle
             self.current_frame = 0
         else:
