@@ -1,31 +1,33 @@
+import sys
+import threading
+from PyQt5.QtWidgets import QApplication
+from visualization import VisualizationWidget
 from data_receiver import DataReceiver
-from data_processor import DataProcessor
 
-class MainApplication:
-    """Classe principale de l'application pour gérer l'interface utilisateur et la logique de traitement."""
 
-    def __init__(self, server_ip, server_port, read_frequency=100):
-        self.server_ip = server_ip
-        self.server_port = server_port
-        self.read_frequency = read_frequency
-        self.data_receiver = DataReceiver(server_ip, server_port, read_frequency)
-        self.data_processor = DataProcessor()
+def main():
+    # Définition des paramètres du serveur
+    server_ip = "127.0.0.1"
+    server_port = 50000
 
-        # Connecter le signal de réception des données au traitement des données
-        self.data_receiver.data_received.connect(self.data_processor.process_data)
+    # Créer une application PyQt5
+    app = QApplication(sys.argv)
 
-        self.data_receiver.connect_to_server()
+    # Créer une instance du widget de visualisation et l'afficher
+    window = VisualizationWidget()
+    window.show()
 
-    def start(self):
-        """Démarre la boucle principale d'acquisition et de traitement."""
-        self.data_receiver.start_receiving()
+    # Créer une instance du récepteur de données et lier le widget à celui-ci
+    data_receiver = DataReceiver(server_ip, server_port, window)
+
+    # Démarrer la réception des données dans un thread séparé pour éviter de bloquer l'interface
+    receiving_thread = threading.Thread(target=data_receiver.start_receiving)
+    receiving_thread.daemon = True  # Marquer le thread comme un thread de démon pour qu'il se ferme avec l'interface
+    receiving_thread.start()
+
+    # Lancer la boucle d'événements de l'interface PyQt5
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
-    # Exemple d'utilisation
-    server_ip = "127.0.0.1"
-    server_port = 50000
-    read_frequency = 100
-
-    app = MainApplication(server_ip, server_port, read_frequency)
-    app.start()
+    main()

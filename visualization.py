@@ -7,34 +7,26 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import random
 from pyScienceMode import Channel, Point, Device, Modes
 from pyScienceMode import RehastimP24 as St
+import numpy as np
 
 
 class VisualizationWidget(QWidget):
-    """Widget PyQt5 pour afficher les graphiques et les données en temps réel."""
     def __init__(self):
         super().__init__()
-        self.title = 'Interface de Stimulation et d\'Analyse'
-        self.left = 100
-        self.top = 100
-        self.width = 800
-        self.height = 600
-
-        # Initialisation des données
-        self.data = {
+        self.title = 'Interface Stim'
+        self.init_ui()
+        self.dataAll = {
             'Lyapunov': [],
             'Moment cinétique': [],
             'Tau': [],
             'Work': []
         }
 
-        self.stimulator = None  # Variable pour le stimulateur
-        self.channel_1 = None  # Stockage du canal de stimulation
-        self.init_ui()
-        self.start_timer()
 
     def init_ui(self):
+        self.stimConfigValue = 0
         self.setWindowTitle(self.title)
-        self.setGeometry(self.left, self.top, self.width, self.height)
+        #self.setGeometry(self.left, self.top, self.width, self.height)
 
         # Layout principal
         layout = QVBoxLayout()
@@ -184,58 +176,88 @@ class VisualizationWidget(QWidget):
         self.timer.timeout.connect(self.update_data_and_graphs)
         self.timer.start(1000)  # Mise à jour toutes les 1000 ms (1 seconde)
 
-    def update_data_and_graphs(self):
-        data_keys = ['Lyapunov', 'Moment cinétique', 'Tau', 'Work']
+    def update_data_and_graphs(self, new_data):
+        """
+        Met à jour les données et actualise les graphiques.
+        - new_data: Nouvelles données du cycle actuel (peut être une valeur unitaire ou un vecteur)
+        """
+        # Mise à jour des données vectorielles pour self.stimConfigValue
+        if self.stimConfigValue not in self.dataAll:
+            self.dataAll[self.stimConfigValue] = []
+        self.dataAll[self.stimConfigValue].append(new_data)
 
-        for key in data_keys:
-            if len(self.data[key]) >= 100:
-                self.data[key].pop(0)
-            self.data[key].append(random.randint(0, 50))
-
+        # Après mise à jour, on redessine les graphes
         self.update_graphs()
 
     def update_graphs(self):
         self.figure.clear()
 
+        # Vérification des checkboxes pour déterminer les graphiques à afficher
         graphs_to_display = [
             self.lyapunov_checkbox.isChecked(),
             self.cinetique_checkbox.isChecked(),
             self.articulaire_checkbox.isChecked(),
             self.travail_checkbox.isChecked()
         ]
-        count = sum(graphs_to_display)
+        count = sum(graphs_to_display)  # Compter combien de graphes afficher
 
         if count == 0:
-            return  # Aucun graphique à afficher
+            return  # Aucun graphique à afficher, on ne fait rien
 
+        # Calcul du nombre de lignes et de colonnes pour les subplots
         rows = (count + 1) // 2
         cols = 2 if count > 1 else 1
         subplot_index = 1
 
+        # Affichage des valeurs unitaires : Lyapunov
         if self.lyapunov_checkbox.isChecked():
             ax = self.figure.add_subplot(rows, cols, subplot_index)
-            ax.plot(self.data['Lyapunov'], label="Lyapunov")
+            for stim_value, lyapunov_data in self.dataAll.get('Lyapunov', {}).items():
+                ax.plot([stim_value] * len(lyapunov_data), lyapunov_data, 'o', label=f"Lyapunov {stim_value}")
+            ax.set_title("Lyapunov par Cycle")
             ax.legend()
             subplot_index += 1
 
+        # Affichage des valeurs unitaires : Moment cinétique
         if self.cinetique_checkbox.isChecked():
             ax = self.figure.add_subplot(rows, cols, subplot_index)
-            ax.plot(self.data['Moment cinétique'], label="Moment cinétique")
+            for stim_value, moment_data in self.dataAll.get('Moment cinétique', {}).items():
+                ax.plot([stim_value] * len(moment_data), moment_data, 'o', label=f"Moment cinétique {stim_value}")
+            ax.set_title("Moment Cinétique par Cycle")
             ax.legend()
             subplot_index += 1
 
+        # Affichage des vecteurs : Tau
         if self.articulaire_checkbox.isChecked():
             ax = self.figure.add_subplot(rows, cols, subplot_index)
-            ax.plot(self.data['Tau'], label="Tau [Nm/kg]")
+            for stim_value, tau_data in self.dataAll.get('Tau', {}).items():
+                stacked_tau = np.vstack(tau_data)  # Empiler les vecteurs pour calculer
+                mean_tau = np.mean(stacked_tau, axis=0)
+                std_tau = np.std(stacked_tau, axis=0)
+                x_values = np.arange(len(mean_tau))
+                ax.plot(x_values, mean_tau, label=f"Moyenne Tau {stim_value}")
+                ax.fill_between(x_values, mean_tau - std_tau, mean_tau + std_tau, alpha=0.3,
+                                label=f"Écart-Type Tau {stim_value}")
+            ax.set_title("Moyenne et Écart-Type Tau")
             ax.legend()
             subplot_index += 1
 
+        # Affichage des vecteurs : Work
         if self.travail_checkbox.isChecked():
             ax = self.figure.add_subplot(rows, cols, subplot_index)
-            ax.plot(self.data['Work'], label="Work [W/kg]")
+            for stim_value, work_data in self.dataAll.get('Work', {}).items():
+                stacked_work = np.vstack(work_data)  # Empiler les vecteurs pour calculer
+                mean_work = np.mean(stacked_work, axis=0)
+                std_work = np.std(stacked_work, axis=0)
+                x_values = np.arange(len(mean_work))
+                ax.plot(x_values, mean_work, label=f"Moyenne Work {stim_value}")
+                ax.fill_between(x_values, mean_work - std_work, mean_work + std_work, alpha=0.3,
+                                label=f"Écart-Type Work {stim_value}")
+            ax.set_title("Moyenne et Écart-Type Work")
             ax.legend()
             subplot_index += 1
 
+        # Redessiner le canevas pour afficher les nouvelles données
         self.canvas.draw()
 
     def save_path(self):

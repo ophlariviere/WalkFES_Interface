@@ -10,93 +10,74 @@ from visualization import VisualizationWidget
 
 
 class DataReceiver(QObject):
-    """Classe pour gérer la réception de données via le serveur."""
-
-    def __init__(self, server_ip, server_port, read_frequency=100, threshold=30):
+    def __init__(self, server_ip, server_port, visualization_widget, read_frequency=100, threshold=30):
         super().__init__()
-        self.server_ip = "127.0.0.1"
-        self.server_port = 50000
-        self.tcp_client = TcpClient(self.server_ip, self.server_port, read_frequency=100)
-        self.threshold = threshold  # Seuil pour détecter un nouveau cycle
-        self.current_frame = 0  # Ajout de current_frame initialisation
-
-    def connect_to_server(self):
-        """Connexion au serveur."""
-        #self.tcp_client.connect()  # Connexion au serveur
-        print(f"Connecté au serveur {self.server_ip}:{self.server_port}")
-
+        self.server_ip = server_ip
+        self.server_port = server_port
+        self.tcp_client = TcpClient(self.server_ip, self.server_port, read_frequency=read_frequency)
+        self.threshold = threshold
+        self.visualization_widget = visualization_widget  # Passer le widget de visualisation
+        self.processor = DataProcessor(self.visualization_widget)  # Lier le DataProcessor au widget
+        self.datacycle = {}  # Initialiser le dictionnaire pour stocker les données
+        self.current_frame = 0  # Initialiser le compteur de frames
 
     def start_receiving(self):
-        """Commence à recevoir les données en continu."""
-        self.connect_to_server()
         print("Début de la réception des données...")
         self.current_frame = 0
         while True:
-            # Récupère les données une seule fois
-            received_data = self.tcp_client.get_data_from_server(command=['Force','Markers','Angle'])
-
-            if received_data and self.current_frame != 0:
-                # Crée et démarre les threads de traitement
-                thread_stimulation = threading.Thread(target=self.check_stimulation, args=(received_data,))
-                thread_cycle_detection = threading.Thread(target=self.check_cycle, args=(received_data,))
-
-                thread_stimulation.start()
-                thread_cycle_detection.start()
-
-                thread_stimulation.join()
-                thread_cycle_detection.join()
-                
-            elif received_data and self.current_frame == 0:
-                self.data = received_data
-                self.current_frame = self.current_frame + 1
-            time.sleep(0.01)  # Pause pour contrôler la fréquence de lecture
+            received_data = self.tcp_client.get_data_from_server(command=['Force', 'Markers', 'Angle'])
+            if received_data:
+                self.check_cycle(received_data)  # Vérifie et traite les cycles avec les données reçues
+            time.sleep(0.01)
 
     def check_stimulation(self, received_data):
         """Vérifie la condition pour l'envoi de stimulation."""
         ap_force = np.mean(received_data['Force'][0])  # Force antéro-postérieure Fx
-        last_ap_force = np.mean(self.data['Force'][0][-10:])
+        last_ap_force = np.mean(self.datacycle['Force'][0][-10:])
 
         # Envoi de stimulation si la force antéro-postérieure est positive
         if ap_force > 5 >= last_ap_force:
-            #self.send_stimulation()
-            print("Appel fonction stim")
+            self.send_stimulation()
 
     def check_cycle(self, received_data):
         """Vérifie la condition pour démarrer un nouveau cycle."""
         vertical_force_mean = np.mean(received_data['Force'][2])
-        last_vertical_force_mean = np.mean(self.data['Force'][2][-10:])
-        # Vérification du cycle
-        print(last_vertical_force_mean, vertical_force_mean)
-        if vertical_force_mean > self.threshold > last_vertical_force_mean:
-            # Détecte le début d'un nouveau cycle, le traitement des données se déclenche
-            processor = DataProcessor()
-            processor.start_new_cycle()
-            self.reset_data()  # Réinitialise les données pour le prochain cycle
-            self.current_frame = 0
+        if 'Force' in self.datacycle and len(self.datacycle['Force'][0]) > 10:
+            last_vertical_force_mean = np.mean(self.datacycle['Force'][2][-10:])
         else:
-            # Ajoute les données reçues au dictionnaire `self.data`
-            for key, new_arrays in received_data.items():
-                if key in self.data:
-                    # Pour chaque liste d'ndarray dans self.data et dico2, concaténer les arrays correspondants
-                    updated_list = [
-                        np.concatenate((old_array, new_array))
-                        for old_array, new_array in zip(self.data[key], new_arrays)
-                    ]
-                    # Ajouter des nouveaux ndarray à la liste si dico2 en a plus
-                    if len(new_arrays) > len(self.data[key]):
-                        updated_list.extend(new_arrays[len(self.data[key]):])
-                    self.data[key] = updated_list
+            last_vertical_force_mean = 0
+
+        # Vérification du cycle
+        #print(last_vertical_force_mean, vertical_force_mean)
+        if vertical_force_mean > self.threshold > last_vertical_force_mean and last_vertical_force_mean != 0:
+            # Détecte le début d'un nouveau cycle, le traitement des données se déclenche
+            cycletoprecess=self.datacycle
+            self.reset_data()  # Réinitialise les données pour le prochain cycle
+            self.processor.start_new_cycle(cycletoprecess)  # Utilise l'instance existante de DataProcessor
+
+        
+        for key, value in received_data.items():
+            # Si l'élément est un dictionnaire, on entre dans une récursion
+            if isinstance(value, dict):
+                if key not in self.datacycle:
+                    self.datacycle[
+                        key] = {}  # Si le sous-dictionnaire n'existe pas encore dans self.datacycle, on l'initialise
+                recursive_concat(self.datacycle[key], value)
+            else:
+                # Si c'est un ndarray, on gère la concaténation (cas général)
+                if key in self.datacycle:
+                    self.datacycle[key] = np.hstack((self.datacycle[key], value))  # Concaténation horizontale
                 else:
-                    self.data[key] = new_arrays
-            self.current_frame = self.current_frame + 1
+                    self.datacycle[key] = value
+        self.current_frame += 1
 
     def send_stimulation(self):
-        self.stimulator.start_stimulation(upd_list_channels=self.list_channels, safety=True)
+        # Appelle la méthode de stimulation (supposée être implémentée ailleurs)
         print("Stimulation envoyée.")
 
     def reset_data(self):
         """Réinitialise les données pour un nouveau cycle."""
-        self.data = {}
+        self.datacycle = {}
         self.current_frame = 0
         print("Les données ont été réinitialisées pour un nouveau cycle.")
 
@@ -109,6 +90,6 @@ if __name__ == "__main__":
     # Créer une instance du widget et afficher l'interface
     window = VisualizationWidget()
     window.show()
-    data_receiver = DataReceiver(server_ip, server_port)
+    data_receiver = DataReceiver(server_ip, server_port, visualization_widget=window)  # Passe correctement le widget
     data_receiver.start_receiving()
     sys.exit(app.exec_())
