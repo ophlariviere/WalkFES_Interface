@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QFormLayout, QGroupBox, QPushButton, QComboBox, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout, QCheckBox, QFormLayout, QGroupBox, QPushButton, QComboBox, QSizePolicy,QFileDialog
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
 import matplotlib.pyplot as plt
@@ -15,12 +15,7 @@ class VisualizationWidget(QWidget):
         super().__init__()
         self.title = 'Interface Stim'
         self.init_ui()
-        self.dataAll = {
-            'Lyapunov': [],
-            'Moment cinétique': [],
-            'Tau': [],
-            'Work': []
-        }
+        self.dataAll = {}
 
 
     def init_ui(self):
@@ -31,20 +26,32 @@ class VisualizationWidget(QWidget):
         # Layout principal
         layout = QVBoxLayout()
 
+        # Selection du model
+        model_layout = QHBoxLayout()
+        self.button = QPushButton('Choisir un fichier', self)
+        self.button.clicked.connect(self.openFileNameDialog)
+        self.label = QLabel('Aucun fichier sélectionné', self)
+        model_layout.addWidget(self.button)
+        model_layout.addWidget(self.label)
+        # GroupBox pour l'enregistrement des données
+        groupBox_model = QGroupBox("Téléchargement du modele:")
+        groupBox_model.setLayout(model_layout)
+        # Ajouter le GroupBox au layout principal
+        groupBox_model.setMaximumHeight(80)
+        groupBox_model.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)  # minimiser la hauteur
+        layout.addWidget(groupBox_model)
+
         # Section d'enregistrement des données
         save_layout = QHBoxLayout()
         self.nom_input = QLineEdit(self)
         save_layout.addWidget(QLabel('Nom pour enregistrer les données:'))
         save_layout.addWidget(self.nom_input)
-
         self.save_button = QPushButton('Validate', self)
         self.save_button.clicked.connect(self.save_path)
         save_layout.addWidget(self.save_button)
-
         # GroupBox pour l'enregistrement des données
         groupBox_save = QGroupBox("Gestion enregistrement données:")
         groupBox_save.setLayout(save_layout)
-
         # Ajouter le GroupBox au layout principal
         groupBox_save.setMaximumHeight(80)
         groupBox_save.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum) #minimiser la hauteur
@@ -92,13 +99,13 @@ class VisualizationWidget(QWidget):
         layout.addWidget(groupBox_params)
 
         # Sélections d'analyse
-        self.lyapunov_checkbox = QCheckBox('Lyapunov', self)
+        self.StanceDuration_checkbox = QCheckBox('StanceDuration', self)
         self.cinetique_checkbox = QCheckBox('Moment cinétique', self)
         self.articulaire_checkbox = QCheckBox('Moment articulaire', self)
         self.travail_checkbox = QCheckBox('Travail mécanique', self)
 
         analysis_layout = QHBoxLayout()
-        analysis_layout.addWidget(self.lyapunov_checkbox)
+        analysis_layout.addWidget(self.StanceDuration_checkbox)
         analysis_layout.addWidget(self.cinetique_checkbox)
         analysis_layout.addWidget(self.articulaire_checkbox)
         analysis_layout.addWidget(self.travail_checkbox)
@@ -194,7 +201,7 @@ class VisualizationWidget(QWidget):
 
         # Vérification des checkboxes pour déterminer les graphiques à afficher
         graphs_to_display = [
-            self.lyapunov_checkbox.isChecked(),
+            self.StanceDuration_checkbox.isChecked(),
             self.cinetique_checkbox.isChecked(),
             self.articulaire_checkbox.isChecked(),
             self.travail_checkbox.isChecked()
@@ -209,12 +216,24 @@ class VisualizationWidget(QWidget):
         cols = 2 if count > 1 else 1
         subplot_index = 1
 
-        # Affichage des valeurs unitaires : Lyapunov
-        if self.lyapunov_checkbox.isChecked():
+        # Affichage des valeurs unitaires : StanceDuration
+        if self.StanceDuration_checkbox.isChecked():
             ax = self.figure.add_subplot(rows, cols, subplot_index)
-            for stim_value, lyapunov_data in self.dataAll.get('Lyapunov', {}).items():
-                ax.plot([stim_value] * len(lyapunov_data), lyapunov_data, 'o', label=f"Lyapunov {stim_value}")
-            ax.set_title("Lyapunov par Cycle")
+            configstim_values = []
+            cadence_values = []
+
+            # Parcourir les configurations et cycles pour extraire les valeurs de cadence
+            for numeroconfigstim in range(len(self.dataAll)):  # Itérer sur les configurations
+                for numerocycle in range(len(self.dataAll[numeroconfigstim])):  # Itérer sur les cycles
+                    # Extraire la valeur de cadence pour chaque cycle et configuration
+                    cadence = self.dataAll[numeroconfigstim][numerocycle]['GaitParameter']['Cadence']
+
+                    # Ajouter les données aux listes
+                    configstim_values.append(numeroconfigstim)
+                    cadence_values.append(cadence)
+
+            ax.plot(configstim_values, cadence_values, 'o')
+            ax.set_title("StanceDuration par Cycle")
             ax.legend()
             subplot_index += 1
 
@@ -259,6 +278,15 @@ class VisualizationWidget(QWidget):
 
         # Redessiner le canevas pour afficher les nouvelles données
         self.canvas.draw()
+
+    def openFileNameDialog(self):
+        # Ouvre la boîte de dialogue pour sélectionner un fichier
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier", "",
+                                                   "Tous les fichiers (*);;Fichiers texte (*.txt)", options=options)
+        if file_name:
+            # Affiche le nom du fichier dans l'étiquette
+            self.label.setText(f"Fichier sélectionné : {file_name}")
 
     def save_path(self):
         self.path_to_saveData = self.nom_input.text()

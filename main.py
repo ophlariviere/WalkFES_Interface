@@ -7,8 +7,8 @@ from data_receiver import DataReceiver
 
 def main():
     # Définition des paramètres du serveur
-    server_ip = "127.0.0.1"
-    server_port = 50000
+    server_ip = "127.0.0.1" #"192.168.0.1"
+    server_port = 50000#8
 
     # Créer une application PyQt5
     app = QApplication(sys.argv)
