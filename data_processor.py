@@ -1,86 +1,116 @@
 import biorbd
 import numpy as np
+import concurrent.futures
+import os
+import csv
 
-from visualization import VisualizationWidget
-from PyQt5.QtWidgets import QApplication
-import sys
 
 class DataProcessor:
     def __init__(self, visualization_widget):
-        self.current_cycle_data = []
         self.is_in_cycle = False
-        self.visualization_widget = visualization_widget  # Référence au widget de visualisation
+        self.visualization_widget = visualization_widget
+        self.model = biorbd.Model(
+            'C:\\Users\\felie\\PycharmProjects\\test\\examples\\LAO.bioMod')  # Précharger le modèle
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)  # Gestion des threads
 
-    def start_new_cycle(self,cycledata):
+    def start_new_cycle(self, cycledata):
         print("Début d'un nouveau cycle détecté.")
-        self.calculate_kinematic_dynamic(cycledata['Force'], cycledata['Angle'])
-        GaitParameter=self.calculate_gait_parameters(cycledata['Force'], cycledata['Markers'])
-        cycledata['GaitParameter'] = GaitParameter
-        print("Mise à jour des graphiques...")
-        # Utilisation des données traitées pour mettre à jour le widget
-        self.visualization_widget.update_data_and_graphs(cycledata)
-        self.save_cycle_data(cycledata)
-        self.reset_cycle_data()
+        # Lancer les calculs cinématiques/dynamiques et des paramètres de marche en parallèle
+        futures = [
+            self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Angle']),
+            self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers'])
+        ]
 
-    def calculate_kinematic_dynamic(self,forcedata,angle):
-        self.model=biorbd.Model('C:\\Users\\felie\\PycharmProjects\\test\\examples\\LAO.bioMod')
+        # Attendre la fin des calculs (récupérer les deux résultats si nécessaire)
+        results = [future.result() for future in futures]
 
-        """Calcule la cinématique et la dynamique inverse pour le cycle actuel."""
-        print("Calcul de la cinématique inverse (IK) et dynamique inverse (ID)...")
-        # Ajoutez ici la logique réelle de calcul si nécessaire.
+        # Stocker les résultats dans cycledata (si on veut aussi stocker le résultat de calculate_kinematic_dynamic)
+        kinematic_dynamic_result = results[0]  # Résultat de calculate_kinematic_dynamic (si nécessaire)
+        gait_parameters = results[1]  # Résultat de calculate_gait_parameters
 
-    def calculate_gait_parameters(self,forcedata,mksdata):
-        Fs_PF = 2000
-        Fs_Mks = 200
-        Fz_PF1 = forcedata[1]['Force'][2, :]  # Fz pour PF1 (pied gauche)
-        Fz_PF2 = forcedata[2]['Force'][2, :]  # Fz pour PF2 (pied droit)
-        Fx_PF1 = forcedata[1]['Force'][0, :]  # Fy pour PF1 (pied gauche)
-        Fx_PF2 = forcedata[2]['Force'][0, :]  # Fy pour PF2 (pied droit)
-        Mks1 = mksdata['LCAL']
-        Mks2 = mksdata['RCAL']
-        bool_array = Fz_PF2 > 30
-        Rheel_strikes = np.where((bool_array[1:] == True) & (bool_array[:-1] == False))[0][0]+1
-        Ltoe_off = np.where(Fz_PF1 < 30)[0][0]
-        Rtoe_off = np.where(Fz_PF2 < 30)[0][0]
-        GaitParam = {
-            'StanceDuration': {'L': 0, 'R': 0},
-            'Cycleduration': 0,
-            'StepWidth': 0,
-            'StepLength': {'L': 0, 'R': 0},
-            'PropulsionDuration': {'L': 0, 'R': 0},
-            'Cadence': 0
+        # Mise à jour des paramètres de marche dans cycledata
+        cycledata['gait_parameter'] = gait_parameters
+
+        # Lancer la mise à jour des graphiques de manière asynchrone
+        self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
+
+        # Lancer la sauvegarde des données de manière asynchrone
+        self.executor.submit(self.save_cycle_data, cycledata)
+
+        # L'interface utilisateur reste réactive pendant que les opérations ci-dessus sont effectuées en parallèle
+
+    @staticmethod
+    def calculate_kinematic_dynamic(forcedata, angle):
+        """Calcule la cinématique inverse (IK) et dynamique inverse (ID)."""
+        print("Calcul de la dynamique inverse...")
+        # Ajoutez ici la logique de calcul
+
+    @staticmethod
+    def calculate_gait_parameters(forcedata, mksdata):
+        """Calcul des paramètres de marche."""
+        fs_pf = 2000  # TODO pas en brut
+        fz_pf1 = forcedata[1]['Force'][2, :]
+        fz_pf2 = forcedata[2]['Force'][2, :]
+        fx_pf1 = forcedata[1]['Force'][0, :]
+        fx_pf2 = forcedata[2]['Force'][0, :]
+        mks1 = mksdata['LCAL']
+        mks2 = mksdata['RCAL']
+
+        rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
+        ltoe_off = np.where(fz_pf1 < 30)[0][0]
+
+        gait_param = {
+            'StanceDuration': {'L': 100 * (ltoe_off / fs_pf), 'R': 100 * (rheel_strikes / fs_pf)},
+            'Cycleduration': len(fz_pf2) / fs_pf,
+            'StepWidth': np.abs(np.mean(mks1[1, :]) - np.mean(mks2[1, :])),
+            'StepLength': {'L': mks1[0, 0] - mks2[0, 0], 'R': mks2[0, 0] - mks1[0, 0]},
+            'PropulsionDuration': {'L': len(np.where(fx_pf1 < -6)[0]) / fs_pf,
+                                   'R': len(np.where(fx_pf2 < -6)[0]) / fs_pf},
+            'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
         }
+        return gait_param
 
-        GaitParam['Cycleduration'] = (len(Fz_PF2))/Fs_PF
-        GaitParam['StanceDuration']['L'] = 100*(Ltoe_off / Fs_PF) / GaitParam['Cycleduration']
-        GaitParam['StanceDuration']['R'] = 100*((len(Fz_PF2) - (Rheel_strikes - Rtoe_off)) / Fs_PF) / GaitParam['Cycleduration']
-        GaitParam['StepWidth'] = np.abs(np.mean(Mks1[1, :]) - np.mean(Mks2[1, :]))
-        GaitParam['StepLength']['L'] = Mks1[0, 0] - Mks2[0, 0]
-        GaitParam['StepLength']['R'] = Mks2[0, int(Fs_Mks*Rheel_strikes/Fs_PF)] - Mks1[0, int(Fs_Mks*Rheel_strikes/Fs_PF)]
-        GaitParam['PropulsionDuration']['L'] = len(np.where(Fx_PF2 < -6)[0])/Fs_PF
-        GaitParam['PropulsionDuration']['R'] = len(np.where(Fx_PF1 < -6)[0])/Fs_PF
-        GaitParam['Cadence'] = 2*(60 / GaitParam['Cycleduration'])
-        return GaitParam
+    def save_cycle_data(self, cycledata):
+        """Sauvegarde des données du cycle."""
+        print("Sauvegarde des données...")
 
+        # Récupérer le nom du fichier depuis self.nom_input de VisualizationWidget
+        save_dir = "saved_cycles"
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
 
-    def save_cycle_data(self):
-        """Sauvegarde les données du cycle actuel."""
-        print("Sauvegarde des données du cycle...")
-        # Ajoutez ici la logique réelle de sauvegarde si nécessaire.
+        # Utiliser le nom défini par l'utilisateur dans self.nom_input
+        filename = os.path.join(save_dir, f"{self.visualization_widget.nom_input.text()}.csv")
 
-    def reset_cycle_data(self):
-        """Réinitialise les données pour un nouveau cycle."""
-        self.current_cycle_data = []
+        # Ajouter les configurations de stimulation aux données du cycle
+        cycledata['StimulationConfig'] = self.get_stimulation_config()
 
+        # Convertir les données en un format sérialisable (e.g. convertir les ndarray en listes)
+        for key, value in cycledata.items():
+            if isinstance(value, np.ndarray):
+                cycledata[key] = value.tolist()  # Convertir ndarray en liste
 
-# Exemple d'utilisation
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = VisualizationWidget()
-    window.show()
+        # Écriture dans un fichier CSV
+        with open(filename, mode='w', newline='') as file:
+            writer = csv.writer(file)
 
-    # Passer le widget de visualisation au DataProcessor
-    processor = DataProcessor(visualization_widget=window)
-    processor.start_new_cycle()
+            # Écrire les clés comme en-têtes
+            writer.writerow(cycledata.keys())
 
-    sys.exit(app.exec_())
+            # Transposer les valeurs pour qu'elles correspondent à leurs clés respectives
+            rows = zip(*cycledata.values())
+
+            # Écrire les lignes des données
+            for row in rows:
+                writer.writerow(row)
+        print(f"Données du cycle et configuration de stimulation sauvegardées dans {filename}")
+
+    def get_stimulation_config(self):
+        """Récupère les configurations de stimulation depuis le widget."""
+        return {
+            "Amplitude": self.visualization_widget.amplitude_input.text(),
+            "Fréquence": self.visualization_widget.frequence_input.text(),
+            "Durée": self.visualization_widget.duree_input.text(),
+            "Largeur": self.visualization_widget.largeur_input.text(),
+            "Mode": self.visualization_widget.mode_combo.currentText(),
+        }
