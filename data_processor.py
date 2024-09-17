@@ -57,13 +57,13 @@ class DataProcessor:
         mks2 = mksdata['RCAL']
 
         rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
-        ltoe_off = np.where(fz_pf1 < 30)[0][0]
+        ltoe_off = np.where(fz_pf1 < 20)[0][0]
 
         gait_param = {
             'StanceDuration': {'L': 100 * (ltoe_off / fs_pf), 'R': 100 * (rheel_strikes / fs_pf)},
             'Cycleduration': len(fz_pf2) / fs_pf,
             'StepWidth': np.abs(np.mean(mks1[1, :]) - np.mean(mks2[1, :])),
-            'StepLength': {'L': mks1[0, 0] - mks2[0, 0], 'R': mks2[0, 0] - mks1[0, 0]},
+            'StepLength': {'L': mks1[0, -1] - mks2[0, -1], 'R': mks2[0, int(rheel_strikes/10)] - mks1[0, int(rheel_strikes/10)]},
             'PropulsionDuration': {'L': len(np.where(fx_pf1 < -6)[0]) / fs_pf,
                                    'R': len(np.where(fx_pf2 < -6)[0]) / fs_pf},
             'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),

@@ -65,7 +65,7 @@ class DataReceiver(QObject):
             self.process_data(received_data)
 
             loop_time = time.time() - tic
-            print(loop_time)
+            #print(loop_time)
             real_time_to_sleep = max(0, int(1 / 200 - loop_time))
             time.sleep(real_time_to_sleep)
 
