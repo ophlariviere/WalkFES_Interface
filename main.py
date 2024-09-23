@@ -1,10 +1,10 @@
 import sys
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from PyQt5.QtWidgets import QApplication
 from visualization import VisualizationWidget
 from data_receiver import DataReceiver
-import cProfile
 import logging
+
 
 # Configure le logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,14 +25,10 @@ def main():
     # Créer une instance du récepteur de données et lier le widget à celui-ci
     data_receiver = DataReceiver(server_ip, server_port, window)
 
-    # Démarrer la réception des données dans un thread séparé pour éviter de bloquer l'interface
-    receiving_thread = threading.Thread(target=data_receiver.start_receiving)
-    receiving_thread.daemon = True  # Marquer le thread comme un thread démon pour qu'il se ferme avec l'interface
-    receiving_thread.start()
-
-    # Lancer la boucle d'événements de l'interface PyQt5
-    sys.exit(app.exec_())
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        executor.submit(data_receiver.start_receiving)
+        sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
-    cProfile.run('main()')
+    main()

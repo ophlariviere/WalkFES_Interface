@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 
 class DataReceiver(QObject):
-    def __init__(self, server_ip, server_port, visualization_widget, read_frequency=200, threshold=30):
+    def __init__(self, server_ip, server_port, visualization_widget, read_frequency=100, threshold=30):
         super().__init__()
         self.server_ip = server_ip
         self.server_port = server_port
@@ -66,7 +66,7 @@ class DataReceiver(QObject):
                 self.process_data(received_data)
 
                 loop_time = time.time() - tic
-                real_time_to_sleep = max(0, int(1 / 200 - loop_time))
+                real_time_to_sleep = max(0, int(1 / 100 - loop_time))
                 time.sleep(real_time_to_sleep)
 
             except Exception as e:
@@ -83,7 +83,7 @@ class DataReceiver(QObject):
             vertical_force_mean = np.mean(received_data['Force']['Force_1'][2, :])
 
             if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][2, :]) > 10:
-                last_vertical_force_mean = np.mean(self.datacycle['Force']['Force_1'][2, -10:])
+                last_vertical_force_mean = np.mean(self.datacycle['Force']['Force_1'][2, -20:])
             else:
                 last_vertical_force_mean = 0
 

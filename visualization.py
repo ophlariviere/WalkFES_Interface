@@ -28,7 +28,8 @@ class VisualizationWidget(QWidget):
             'LKnee': {},
             'LAnkle': {},
             'StanceDuration_L': {},
-            'PropulsionDuration_L': {}
+            'PropulsionDuration_L': {},
+            'Force_1': {}
         }
         self.DataToPlotConfigNum = []  # Initialiser la liste pour stocker les numéros de configuration
         self.init_ui()
@@ -225,11 +226,21 @@ class VisualizationWidget(QWidget):
         self.update_graphs()
 
     def interpolate_vector(self, vector):
-        # Interpolation du vecteur pour avoir 100 points
+        # Vérification que la taille du vecteur est correcte avant d'interpoler
+        if len(vector) == 0:
+            logging.error("Le vecteur d'entrée est vide pour l'interpolation.")
+            return np.zeros(100)  # Retourner un vecteur nul si le vecteur est vide
+
         x = np.linspace(0, 1, len(vector))
         x_new = np.linspace(0, 1, 100)
-        interpolated_vector = np.interp(x_new, x, vector)
-        return interpolated_vector
+
+        try:
+            interpolated_vector = np.interp(x_new, x, vector)
+            return interpolated_vector
+        except Exception as e:
+            logging.error(f"Erreur lors de l'interpolation du vecteur : {e}")
+            self.show_error_message(f"Erreur d'interpolation : {e}")
+            return np.zeros(100)  # Retourner un vecteur nul en cas d'erreur
 
     def update_graphs(self):
         self.figure.clear()

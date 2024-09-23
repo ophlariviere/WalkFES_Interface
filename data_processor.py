@@ -15,7 +15,7 @@ class DataProcessor:
         self.visualization_widget = visualization_widget
         self.model = biorbd.Model()
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-        self.cycle_num=0
+        self.cycle_num = 0
 
     def start_new_cycle(self, cycledata):
         logging.info("Début d'un nouveau cycle détecté.")
@@ -29,7 +29,7 @@ class DataProcessor:
             kinematic_dynamic_result = results[0]
             gait_parameters = results[1]
             cycledata['gait_parameter'] = gait_parameters
-            self.cycle_num=self.cycle_num+1
+            self.cycle_num = self.cycle_num+1
 
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
@@ -70,7 +70,6 @@ class DataProcessor:
         }
         return gait_param
 
-
     def extract_headers_and_values(self, data, parent_key='', sep='_'):
         headers = []
         values = []
@@ -94,7 +93,6 @@ class DataProcessor:
 
         return headers, values
 
-    # Updated function to save each primary entry of cycledata in separate CSV files, with rows per frame and separate columns for Fx, Fy, Fz
     def save_cycle_data(self, cycledata):
         logging.info("Saving cycle data into separate CSV files, with rows per frame...")
         try:
@@ -102,74 +100,117 @@ class DataProcessor:
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
 
-            # Ensure StimulationConfig is included in cycledata
+            # Include StimulationConfig in cycledata
             cycledata['StimulationConfig'] = self.get_stimulation_config()
 
-            # List of primary keys in cycledata to be saved separately
-            primary_keys = cycledata.keys()
+            # Iterate through each primary key in cycledata
+            for key, data in cycledata.items():
+                if isinstance(data, dict) and any(isinstance(v, (np.ndarray, list, float, int)) for v in data.values()):
+                    # Flatten the data structure for saving
+                    headers, flattened_data = self.flatten_single_entry_with_frames(data, key)
+                else:
+                    # Handle the single-entry data (e.g., 'StimulationConfig')
+                    headers, flattened_data = self.flatten_single_entry_without_frames(data, key)
 
-            for key in primary_keys:
-                if key in cycledata:
-                    # Flatten data and generate headers and values
-                    headers, flattened_data = self.flatten_single_entry_with_frames(cycledata[key], key)
+                # Construct the output file name
+                output_file = os.path.join(save_dir, f"{self.visualization_widget.nom_input.text()}_{key}.csv")
 
-                    # Construct the output file name
-                    output_file = os.path.join(save_dir, f"{self.visualization_widget.nom_input.text()}_{key}.csv")
+                # Check if the file exists to avoid writing headers multiple times
+                file_exists = os.path.isfile(output_file)
 
-                    # Save the data to a CSV file
-                    with open(output_file, mode='a', newline='') as file:
-                        writer = csv.writer(file)
+                # Save the data to a CSV file
+                with open(output_file, mode='a', newline='') as file:
+                    writer = csv.writer(file)
 
-                        # Write headers
-                        if self.cycle_num>0:
-                            writer.writerow(headers)
+                    # Write headers only if the file is newly created or empty
+                    if not file_exists or self.cycle_num == 0:
+                        writer.writerow(headers)
 
-                        # Write flattened data rows
-                        writer.writerows(flattened_data)
+                    # Write flattened data rows
+                    writer.writerows(flattened_data)
 
-                    logging.info(f"Data {key} saved to {output_file}.")
+                logging.info(f"Data for key '{key}' saved to {output_file}.")
 
         except Exception as e:
             logging.error(f"Error while saving data: {e}")
 
-    # Flatten the data for a single entry (e.g., 'Force', 'Markers', etc.), row per frame, with separate columns for Fx, Fy, Fz
     def flatten_single_entry_with_frames(self, data, key):
         flattened_data = []
         headers = ['Cycle', 'Frame']  # Initialize headers with 'Cycle' and 'Frame'
 
         # Check if 'data' is a dictionary
-        if isinstance(data, dict):
-            # First, determine the number of frames from the data (assuming each array is 3xN, where N is the number of frames)
-            num_frames = None
-            for subkey, array in data.items():
-                if isinstance(array, np.ndarray) and array.shape[0] == 3:  # Check if it's 3xN
-                    num_frames = array.shape[1]  # Get number of frames
-                    break
-                else:
-                    num_frames = array.shape[0]
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected data for key '{key}' to be a dictionary, got {type(data)}")
 
-            if num_frames is None:
-                raise ValueError(f"No frame data found in {key}")
+        # Determine the number of frames from data structure
+        num_frames = None
+        example_key = None
+        for subkey, value in data.items():
+            if isinstance(value, np.ndarray) and value.ndim == 2 and value.shape[0] == 3:
+                num_frames = value.shape[1]
+                example_key = subkey
+                break
+            elif isinstance(value, list):
+                num_frames = len(value)
+                example_key = subkey
+                break
+            elif isinstance(value, float) or isinstance(value, int):
+                num_frames = 1
+                break
 
-            # Now add headers for each component (Fx, Fy, Fz)
-            for subkey in data.keys():
+        if num_frames is None:
+            raise ValueError(f"Could not determine frame count for key '{key}'")
+
+        # Extend headers based on the data type and content
+        for subkey, value in data.items():
+            if isinstance(value, np.ndarray) and value.ndim == 2 and value.shape[0] == 3:
                 headers.extend([f"{subkey}_Fx", f"{subkey}_Fy", f"{subkey}_Fz"])
+            elif isinstance(value, list) or isinstance(value, np.ndarray):
+                headers.append(f"{subkey}")
+            else:
+                headers.append(f"{subkey}")
 
-            # Iterate over each frame
-            for frame_idx in range(num_frames):
-                row = [self.cycle_num, frame_idx + 1]  # Add 'Cycle' (key) and 'Frame' number
+        # Iterate over each frame to construct rows
+        for frame_idx in range(num_frames):
+            row = [self.cycle_num, frame_idx + 1]  # Add 'Cycle' and 'Frame' number
 
-                # For each frame, extract the 3 components (Fx, Fy, Fz) for each key
-                for subkey, array in data.items():
-                    if isinstance(array, np.ndarray) and array.shape[0] == 3:
-                        # Extract Fx, Fy, Fz for the current frame
-                        fx, fy, fz = array[:, frame_idx]
+            # Populate the row based on data type
+            for subkey, value in data.items():
+                if isinstance(value, np.ndarray) and value.ndim == 2 and value.shape[0] == 3:
+                    if frame_idx < value.shape[1]:
+                        fx, fy, fz = value[:, frame_idx]
                         row.extend([fx, fy, fz])
                     else:
-                        # Handle other types of data if necessary
-                        row.append(array[frame_idx] if isinstance(array, np.ndarray) else array)
+                        row.extend([None, None, None])
+                elif isinstance(value, np.ndarray) or isinstance(value, list):
+                    row.append(value[frame_idx] if frame_idx < len(value) else None)
+                elif isinstance(value, (float, int)):
+                    row.append(value)
+                else:
+                    row.append(None)  # Handle unexpected data types as None
 
-                flattened_data.append(row)
+            flattened_data.append(row)
+
+        return headers, flattened_data
+
+    # Handle single-entry data (e.g., 'StimulationConfig') which is not frame-based
+    def flatten_single_entry_without_frames(self, data, key):
+        flattened_data = []
+        headers = ['Cycle']  # Initialize headers with 'Cycle'
+
+        # Check if 'data' is a dictionary
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected data for key '{key}' to be a dictionary, got {type(data)}")
+
+        # Extend headers based on the keys in the dictionary
+        headers.extend(data.keys())
+
+        # Create a single row with 'Cycle' value and data values
+        row = [self.cycle_num]
+        for subkey in data.keys():
+            row.append(data[subkey])
+
+        flattened_data.append(row)
 
         return headers, flattened_data
 
