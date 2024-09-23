@@ -8,8 +8,10 @@ from pyScienceMode import Channel, Device, Modes
 from pyScienceMode import RehastimP24 as St
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
+import logging
+
+# Configure le logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class VisualizationWidget(QWidget):
@@ -22,10 +24,11 @@ class VisualizationWidget(QWidget):
         self.label = None
         self.title = 'Interface Stim'
         self.DataToPlot = {
-            'Cycleduration': {},
-            'Cadence': {},
-            'RHip': {},
-            'RAnkle': {}
+            'LHip': {},
+            'LKnee': {},
+            'LAnkle': {},
+            'StanceDuration_L': {},
+            'PropulsionDuration_L': {}
         }
         self.DataToPlotConfigNum = []  # Initialiser la liste pour stocker les numéros de configuration
         self.init_ui()
@@ -206,18 +209,18 @@ class VisualizationWidget(QWidget):
                 self.DataToPlot[key][self.stimConfigValue] = []
 
             # Vérifier si la nouvelle donnée contient la clé
-
             value = self.get_value_iterative(new_data, key)
 
             # Vérifier si la valeur est numérique et l'ajouter directement
-            if isinstance(value, (int, float)):
+            if isinstance(value, (np.ndarray, list)):  # Check for array-like objects
+                value = np.array(value)  # Ensure it's a NumPy array if it's not already
+                if value.ndim == 2:  # Check the number of dimensions
+                    interpolated_vector = self.interpolate_vector(value[1,:])
+                    self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector*180/3.14)
+                else:
+                    self.DataToPlot[key][self.stimConfigValue].append(value)
+            elif isinstance(value, (int, float)):  # Handle scalar numbers separately
                 self.DataToPlot[key][self.stimConfigValue].append(value)
-
-            # Vérifier si la valeur est un vecteur (liste) et l'interpoler
-            elif isinstance(value, list) and len(value) > 0:
-                interpolated_vector = self.interpolate_vector(value)
-                self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
-
 
         self.update_graphs()
 
@@ -249,41 +252,11 @@ class VisualizationWidget(QWidget):
                 # Ajouter un sous-graphe pour chaque graphique sélectionné
                 ax = self.figure.add_subplot(rows, cols, subplot_index)
                 data_to_plot = self.DataToPlot[key]
-
-                # Vérifier s'il y a des données à tracer pour le type sélectionné
-                if any(len(values[0]) > 0 for values in data_to_plot.values()):
-                    # Déterminer si les données sont numériques ou des vecteurs
+                if any(len(values) > 0 for values in data_to_plot.values()):
                     if all(isinstance(values[0], (int, float)) for values in data_to_plot.values() if len(values) > 0):
-                        # Tracer les données numériques
                         self.plot_numeric_data(ax, key, key)
                     else:
-                        # Tracer les données vectorielles
                         self.plot_vector_data(ax, key, key)
-
-
-                """
-                data_to_plot = self.DataToPlot[key]
-                #numconfig = self.DataToPlotConfigNum
-                if len(data_to_plot)>0:
-                    configurations = self.DataToPlotConfigNum
-                    valeurs = [data_to_plot[config] for config in configurations]
-                    if len(data_to_plot[0]) == 1:  # Si c'est un vecteur
-                        # Préparation des données pour boxplot
-                        plt.scatter(self.DataToPlotConfigNum, data_to_plot)
-                        plt.xlabel('Configurations de stimulation')
-                        plt.ylabel(f'{config}')
-                    else:  # Si c'est une matrice 2D
-                        # Préparation des courbes avec moyenne et écart-type
-                        for i, config in enumerate(numconfig):
-                            mean = np.mean(data_to_plot[i], axis=0)
-                            std = np.std(data_to_plot[i], axis=0)
-                            x = np.arange(len(mean))
-                            ax.plot(x, mean, label=f'Config {config}')
-                            ax.fill_between(x, mean - std, mean + std, alpha=0.3)
-
-                        ax.set_title(f'{key} - Moyenne et écart-type')
-                        ax.legend()
-                """
 
                 subplot_index += 1
 
@@ -324,34 +297,33 @@ class VisualizationWidget(QWidget):
         return None
 
 
-def plot_numeric_data(self, ax, key, ylabel):
-    # Tracer les valeurs numériques (par exemple, Cycleduration, Cadence) sur le sous-graphe 'ax'
-    for stim_config, values in self.DataToPlot[key].items():
-        cycles = list(range(1, len(values) + 1))
-        ax.plot(cycles, values, marker='o', label=f'Stim: {stim_config}')
+    def plot_numeric_data(self, ax, key, ylabel):
+        # Tracer les valeurs numériques (par exemple, Cycleduration, Cadence) sur le sous-graphe 'ax'
+        for stim_config, values in self.DataToPlot[key].items():
+            cycles = list(range(1, len(values) + 1))
+            ax.plot(cycles, values, marker='o', label=f'Stim: {stim_config}')
 
-    ax.set_xlabel('Cycle Number')
-    ax.set_ylabel(ylabel)
-    ax.set_title(f'{ylabel} Over Cycles')
-    ax.legend()
+        ax.set_xlabel('Cycle Number')
+        ax.set_ylabel(ylabel)
+        ax.set_title(f'{ylabel} Over Cycles')
+        ax.legend()
 
 
-def plot_vector_data(self, ax, key, ylabel):
-    # Tracer les vecteurs interpolés (par exemple, RHip, RAnkle) sur le sous-graphe 'ax'
-    x_percentage = np.linspace(0, 100, 100)
+    def plot_vector_data(self, ax, key, ylabel):
+        # Tracer les vecteurs interpolés (par exemple, RHip, RAnkle) sur le sous-graphe 'ax'
+        x_percentage = np.linspace(0, 100, 100)
+        for stim_config, cycle_data in self.DataToPlot[key].items():
+            cycle_data = np.array(cycle_data)  # Convert the list of cycles to a NumPy array
+            mean_vector = np.mean(cycle_data, axis=0)
+            std_vector = np.std(cycle_data, axis=0)
 
-    for stim_config, vectors in self.DataToPlot[key].items():
-        vectors = np.array(vectors)
-        mean_vector = np.mean(vectors, axis=0)
-        std_vector = np.std(vectors, axis=0)
+            ax.plot(x_percentage, mean_vector, label=f'Stim: {stim_config}')
+            ax.fill_between(x_percentage, mean_vector - std_vector, mean_vector + std_vector, alpha=0.2)
 
-        ax.plot(x_percentage, mean_vector, label=f'Stim: {stim_config}')
-        ax.fill_between(x_percentage, mean_vector - std_vector, mean_vector + std_vector, alpha=0.2)
-
-    ax.set_xlabel('Percentage of Cycle')
-    ax.set_ylabel(ylabel)
-    ax.set_title(f'{ylabel} by Stimulation Configuration')
-    ax.legend()
+        ax.set_xlabel('Percentage of Cycle')
+        ax.set_ylabel(ylabel)
+        ax.set_title(f'{ylabel} by Stimulation Configuration')
+        ax.legend()
 
 
 if __name__ == '__main__':
