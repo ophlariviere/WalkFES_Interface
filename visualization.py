@@ -9,6 +9,7 @@ from pyScienceMode import RehastimP24 as St
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
+from scipy.interpolate import interp1d
 
 # Configure le logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -156,6 +157,10 @@ class VisualizationWidget(QWidget):
             print(f"Erreur lors de l'activation du stimulateur : {e}")
         self.stimConfigValue = 0
 
+    def send_stimulation(self):
+        self.stimulator.start_stimulation(upd_list_channels=self.list_channels, safety=True)
+        print("Stimulation envoyée.")
+
     def desactiver_stimulateur(self):
         if hasattr(self, 'stimulator') and self.stimulator:
             self.stimulator.end_stimulation()
@@ -233,14 +238,9 @@ class VisualizationWidget(QWidget):
 
         x = np.linspace(0, 1, len(vector))
         x_new = np.linspace(0, 1, 100)
-
-        try:
-            interpolated_vector = np.interp(x_new, x, vector)
-            return interpolated_vector
-        except Exception as e:
-            logging.error(f"Erreur lors de l'interpolation du vecteur : {e}")
-            self.show_error_message(f"Erreur d'interpolation : {e}")
-            return np.zeros(100)  # Retourner un vecteur nul en cas d'erreur
+        fonction_interpolation = interp1d(x, vector, kind='linear')
+        interpolated_vector = fonction_interpolation(x_new)
+        return interpolated_vector
 
     def update_graphs(self):
         self.figure.clear()

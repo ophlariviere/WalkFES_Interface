@@ -3,7 +3,10 @@ import time
 import numpy as np
 from biosiglive import TcpClient
 from PyQt5.QtCore import QObject
+
+import visualization
 from data_processor import DataProcessor
+from visualization import VisualizationWidget
 import logging
 
 # Configure le logging
@@ -63,7 +66,14 @@ class DataReceiver(QObject):
                 del frc_data, mks_data, angle_data
 
                 # Traiter les données en parallèle pour ne pas bloquer la réception
-                self.process_data(received_data)
+                thread_stimulation = threading.Thread(target=self.check_stimulation, args=(received_data,))
+                thread_datagestion = threading.Thread(target=self.process_data, args=(received_data,))
+
+                thread_stimulation.start()
+                thread_datagestion.start()
+
+                thread_stimulation.join()
+                thread_datagestion.join()
 
                 loop_time = time.time() - tic
                 real_time_to_sleep = max(0, int(1 / 100 - loop_time))
@@ -71,6 +81,25 @@ class DataReceiver(QObject):
 
             except Exception as e:
                 logging.error(f"Erreur lors de la réception des données : {e}")
+    def check_stimulation(self, received_data):
+        """Vérifie la condition pour l'envoi de stimulation."""
+        try:
+            ap_force_mean = np.mean(received_data['Force']['Force_1'][0, :])
+            long=len(received_data['Force']['Force_1'][0, :])
+            if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][0, :]) > 0:
+                last_ap_force_mean = np.mean(self.datacycle['Force']['Force_1'][0, -long:])
+            else:
+                last_ap_force_mean = 0
+
+        # Envoi de stimulation si la force antéro-postérieure est positive
+            if ap_force_mean > 5 >= last_ap_force_mean:
+                visualization.VisualizationWidget.send_stimulation(self)
+                print("Appel fonction stim")
+        except Exception as e:
+            logging.error(f"Erreur lors de la stim : {e}")
+
+
+
 
     def process_data(self, received_data):
         """Traitement des données et vérification du cycle."""
@@ -81,9 +110,9 @@ class DataReceiver(QObject):
         """Vérifie si un nouveau cycle doit commencer."""
         try:
             vertical_force_mean = np.mean(received_data['Force']['Force_1'][2, :])
-
-            if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][2, :]) > 10:
-                last_vertical_force_mean = np.mean(self.datacycle['Force']['Force_1'][2, -20:])
+            long=len(received_data['Force']['Force_1'][2, :])
+            if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][2, :]) > 0:
+                last_vertical_force_mean = np.mean(self.datacycle['Force']['Force_1'][2, -long:])
             else:
                 last_vertical_force_mean = 0
 
