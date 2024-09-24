@@ -1,28 +1,27 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout,
-                             QCheckBox, QGroupBox, QPushButton, QComboBox, QSizePolicy,
-                             QFileDialog)
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit, QCheckBox, QGroupBox, QComboBox, QHBoxLayout, QSizePolicy, QFileDialog, QApplication
+from PyQt5.Qt import Qt
+import logging
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from pyScienceMode import Channel, Device, Modes
-from pyScienceMode import RehastimP24 as St
 import numpy as np
 import matplotlib.pyplot as plt
-import logging
 from scipy.interpolate import interp1d
+from pyScienceMode import Channel, Device, Modes
+from pyScienceMode import RehastimP24 as St
 
 # Configure le logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
 class VisualizationWidget(QWidget):
     def __init__(self):
         super().__init__()
+        # Assurez-vous que self.channel_1 est défini si vous l'utilisez.
         self.save_button = None
         self.nom_input = None
         self.button = None
         self.stimConfigValue = None
         self.label = None
+        self.stimulator_is_active = False
         self.title = 'Interface Stim'
         self.DataToPlot = {
             'LHip': {},
@@ -136,13 +135,13 @@ class VisualizationWidget(QWidget):
         self.setLayout(layout)
 
     def on_stimulator_checkbox_toggled(self, state):
-        """Appelée lorsque la checkbox est cochée/décochée."""
         if state == Qt.Checked:
-            print("Le stimulateur est activé.")
+            logging.info("Stimulator activated.")
             self.activer_stimulateur()
         else:
-            print("Le stimulateur est désactivé.")
+            logging.info("Stimulator deactivated.")
             self.desactiver_stimulateur()
+
 
     def activer_stimulateur(self):
         try:
@@ -150,22 +149,30 @@ class VisualizationWidget(QWidget):
                 "Single", no_channel=1, amplitude=15, pulse_width=250, frequency=25, name="Gastro",
                 device_type=Device.Rehastimp24
             )
+            self.channel1_duree=1
             self.stimulator = St(port="COM3")
             self.stimulator.init_stimulation(list_channels=[self.channel_1])
+            self.stimulator_is_active = True
+
             print("Fonction d'activation du stimulateur appelée.")
         except Exception as e:
             print(f"Erreur lors de l'activation du stimulateur : {e}")
         self.stimConfigValue = 0
 
     def send_stimulation(self):
-        self.stimulator.start_stimulation(upd_list_channels=self.list_channels, safety=True)
-        print("Stimulation envoyée.")
+        if self.stimulator_is_active:
+            self.stimulator.start_stimulation(upd_list_channels=[self.channel_1],  stimulation_duration=self.channel1_duree, safety=True)
+            print("Stimulation envoyée.")
+        else :
+            print("Stim desactivé")
 
     def desactiver_stimulateur(self):
         if hasattr(self, 'stimulator') and self.stimulator:
             self.stimulator.end_stimulation()
             self.stimulator.close_port()
+            self.stimulator_is_active = False
             print("Fonction de désactivation du stimulateur appelée.")
+
 
     def stim_actu_clicked(self):
         try:
@@ -184,9 +191,10 @@ class VisualizationWidget(QWidget):
             self.channel_1.set_pulse_width(largeur)
             self.channel_1.set_frequency(frequence)
             self.channel_1.set_mode(mode)
+            self.channel1_duree(duree)
 
             # Mettre à jour la stimulation
-            self.stimulator.update_stimulation(upd_list_channels=[self.channel_1], stimulation_duration=duree)
+            #self.stimulator.update_stimulation(upd_list_channels=[self.channel_1], stimulation_duration=duree)
             print(
                 f"Stimulation mise à jour : Amplitude={amplitude}, Fréquence={frequence}, "
                 f"Durée={duree}, Largeur={largeur}, Mode={mode_text}")
@@ -221,7 +229,7 @@ class VisualizationWidget(QWidget):
             if isinstance(value, (np.ndarray, list)):  # Check for array-like objects
                 value = np.array(value)  # Ensure it's a NumPy array if it's not already
                 if value.ndim == 2:  # Check the number of dimensions
-                    interpolated_vector = self.interpolate_vector(value[1,:])
+                    interpolated_vector = self.interpolate_vector(value[1, :])
                     self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector*180/3.14)
                 else:
                     self.DataToPlot[key][self.stimConfigValue].append(value)
@@ -230,7 +238,8 @@ class VisualizationWidget(QWidget):
 
         self.update_graphs()
 
-    def interpolate_vector(self, vector):
+    @staticmethod
+    def interpolate_vector(vector):
         # Vérification que la taille du vecteur est correcte avant d'interpoler
         if len(vector) == 0:
             logging.error("Le vecteur d'entrée est vide pour l'interpolation.")
@@ -307,7 +316,6 @@ class VisualizationWidget(QWidget):
 
         return None
 
-
     def plot_numeric_data(self, ax, key, ylabel):
         # Tracer les valeurs numériques (par exemple, Cycleduration, Cadence) sur le sous-graphe 'ax'
         for stim_config, values in self.DataToPlot[key].items():
@@ -318,7 +326,6 @@ class VisualizationWidget(QWidget):
         ax.set_ylabel(ylabel)
         ax.set_title(f'{ylabel} Over Cycles')
         ax.legend()
-
 
     def plot_vector_data(self, ax, key, ylabel):
         # Tracer les vecteurs interpolés (par exemple, RHip, RAnkle) sur le sous-graphe 'ax'

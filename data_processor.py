@@ -5,15 +5,9 @@ import os
 import csv
 import logging
 
-# Configure le logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
 class DataProcessor:
     def __init__(self, visualization_widget):
-        self.is_in_cycle = False
         self.visualization_widget = visualization_widget
-        self.model = biorbd.Model()
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.cycle_num = 0
 
@@ -25,17 +19,24 @@ class DataProcessor:
                 self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers'])
             ]
 
-            results = [future.result() for future in futures]
+            results = []
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except Exception as e:
+                    logging.error(f"Erreur lors de l'exécution du thread : {e}")
+
             kinematic_dynamic_result = results[0]
             gait_parameters = results[1]
             cycledata['gait_parameter'] = gait_parameters
-            self.cycle_num = self.cycle_num+1
+            self.cycle_num += 1
 
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du nouveau cycle : {e}")
+
 
     @staticmethod
     def calculate_kinematic_dynamic(forcedata, angle):

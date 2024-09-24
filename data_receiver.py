@@ -3,28 +3,25 @@ import time
 import numpy as np
 from biosiglive import TcpClient
 from PyQt5.QtCore import QObject
-
-import visualization
+import logging
 from data_processor import DataProcessor
 from visualization import VisualizationWidget
-import logging
-
-# Configure le logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 class DataReceiver(QObject):
     def __init__(self, server_ip, server_port, visualization_widget, read_frequency=100, threshold=30):
         super().__init__()
+        self.visualization_widget = visualization_widget
         self.server_ip = server_ip
         self.server_port = server_port
         self.tcp_client = TcpClient(self.server_ip, self.server_port, read_frequency=read_frequency)
         self.threshold = threshold
+        self.datacycle = {}
+        self.stimulator = []
+        self.current_frame = 0
+        self.lock = threading.Lock()
         self.visualization_widget = visualization_widget
-        self.processor = DataProcessor(self.visualization_widget)
-        self.datacycle = {}  # Dictionnaire pour stocker les données du cycle
-        self.current_frame = 0  # Initialiser le compteur de frames
-        self.lock = threading.Lock()  # Pour éviter les conflits de données
+        self.read_frequency = read_frequency
+        self.processor = DataProcessor(self.visualization_widget)  # Passez l'objet visualization_widget
         self.dofcorr = {"LHip": (36, 37, 38), "LKnee": (39, 40, 41), "LAnkle": (42, 43, 44),
                         "RHip": (27, 28, 29), "RKnee": (30, 31, 32), "RAnkle": (33, 34, 35),
                         "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),
@@ -38,34 +35,33 @@ class DataReceiver(QObject):
             try:
                 received_data = self.tcp_client.get_data_from_server(
                     command=['Force', 'Markers', 'Angle', 'MarkersNames'])
+
                 # Organisation des données reçues
                 mks_data = {}
                 for i, name in enumerate(received_data['MarkersNames']):
                     mks_data[name] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
                                                received_data['Markers'][2][i, :]])
 
-                frc_data={}
+                frc_data = {}
                 for pfnum in [1, 2]:
                     start_idx = (pfnum - 1) * 6
                     for i, comp in enumerate(['Force', 'Moment']):
-                        key = f"{comp}_{pfnum}"  # Création de la clé dynamique, par exemple 'Force_1', 'Force_2'
-                        frc_data[key] = np.array(
-                            [received_data['Force'][start_idx + 3 * i][:],
-                             received_data['Force'][start_idx + 3 * i + 1][:],
-                             received_data['Force'][start_idx + 3 * i + 2][:]]
-                        )
-
+                        key = f"{comp}_{pfnum}"
+                        frc_data[key] = np.array([
+                            received_data['Force'][start_idx + 3 * i][:],
+                            received_data['Force'][start_idx + 3 * i + 1][:],
+                            received_data['Force'][start_idx + 3 * i + 2][:]
+                        ])
 
                 angle_data = {}
                 for key, indices in self.dofcorr.items():
-                    angle_data[f'{key}'] = np.array([[received_data['Angle'][indices[0]]],
-                                                     [received_data['Angle'][indices[1]]],
-                                                     [received_data['Angle'][indices[2]]]])
+                    angle_data[key] = np.array([[received_data['Angle'][indices[0]]],
+                                                [received_data['Angle'][indices[1]]],
+                                                [received_data['Angle'][indices[2]]]])
 
                 received_data = {"Force": frc_data, "Markers": mks_data, "Angle": angle_data}
-                del frc_data, mks_data, angle_data
 
-                # Traiter les données en parallèle pour ne pas bloquer la réception
+                # Utilisation de thread pour traiter les données en parallèle
                 thread_stimulation = threading.Thread(target=self.check_stimulation, args=(received_data,))
                 thread_datagestion = threading.Thread(target=self.process_data, args=(received_data,))
 
@@ -76,41 +72,38 @@ class DataReceiver(QObject):
                 thread_datagestion.join()
 
                 loop_time = time.time() - tic
-                real_time_to_sleep = max(0, int(1 / 100 - loop_time))
+                real_time_to_sleep = max(0, 1 / self.read_frequency - loop_time)
                 time.sleep(real_time_to_sleep)
 
             except Exception as e:
                 logging.error(f"Erreur lors de la réception des données : {e}")
+
     def check_stimulation(self, received_data):
-        """Vérifie la condition pour l'envoi de stimulation."""
         try:
             ap_force_mean = np.mean(received_data['Force']['Force_1'][0, :])
-            long=len(received_data['Force']['Force_1'][0, :])
+            long = len(received_data['Force']['Force_1'][0, :])
             if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][0, :]) > 0:
                 last_ap_force_mean = np.mean(self.datacycle['Force']['Force_1'][0, -long:])
             else:
                 last_ap_force_mean = 0
 
-        # Envoi de stimulation si la force antéro-postérieure est positive
+            # Accédez à stimulator_is_active via self.visualization_widget
             if ap_force_mean > 5 >= last_ap_force_mean:
-                visualization.VisualizationWidget.send_stimulation(self)
-                print("Appel fonction stim")
+                if self.visualization_widget.stimulator_is_active:  # Vérifiez si le stimulateur est actif
+                    self.visualization_widget.send_stimulation()  # Appeler la méthode send_stimulation de l'instance VisualizationWidget
+                    logging.info("Stimulation signal emitted")
         except Exception as e:
-            logging.error(f"Erreur lors de la stim : {e}")
-
-
-
+            logging.error(f"Erreur lors de la stimulation : {e}")
 
     def process_data(self, received_data):
-        """Traitement des données et vérification du cycle."""
         self.check_cycle(received_data)
-        self.recursive_concat(self.datacycle, received_data)
+        with self.lock:
+            self.recursive_concat(self.datacycle, received_data)
 
     def check_cycle(self, received_data):
-        """Vérifie si un nouveau cycle doit commencer."""
         try:
             vertical_force_mean = np.mean(received_data['Force']['Force_1'][2, :])
-            long=len(received_data['Force']['Force_1'][2, :])
+            long = len(received_data['Force']['Force_1'][2, :])
             if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][2, :]) > 0:
                 last_vertical_force_mean = np.mean(self.datacycle['Force']['Force_1'][2, -long:])
             else:
@@ -121,15 +114,12 @@ class DataReceiver(QObject):
                 self.datacycle = {}
                 self.current_frame = 0
                 logging.info("Les données ont été réinitialisées pour un nouveau cycle.")
-                tic = time.time()
                 self.processor.start_new_cycle(cycle_to_process)
-                logging.info(f"Temps de traitement du cycle : {time.time() - tic}s")
 
         except Exception as e:
             logging.error(f"Erreur lors de la vérification du cycle : {e}")
 
     def recursive_concat(self, datacycle, received_data):
-        """Concatène récursivement les données reçues dans datacycle."""
         for key, value in received_data.items():
             if isinstance(value, dict):
                 if key not in datacycle:

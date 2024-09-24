@@ -18,17 +18,17 @@ def main():
     # Créer une application PyQt5
     app = QApplication(sys.argv)
 
-    # Créer une instance du widget de visualisation et l'afficher
-    window = VisualizationWidget()
-    window.show()
+    # Créez une instance du widget de visualisation et affichez-la
+    visualization_widget = VisualizationWidget()
+    visualization_widget.show()
 
-    # Créer une instance du récepteur de données et lier le widget à celui-ci
-    data_receiver = DataReceiver(server_ip, server_port, window)
+    # Créez une instance de DataReceiver et liez le widget de visualisation à celui-ci
+    data_receiver = DataReceiver(server_ip, server_port, visualization_widget)
 
+    # Utilisez ThreadPoolExecutor pour exécuter les tâches en parallèle
     with ThreadPoolExecutor(max_workers=2) as executor:
         executor.submit(data_receiver.start_receiving)
         sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     main()
