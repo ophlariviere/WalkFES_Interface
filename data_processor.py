@@ -4,12 +4,19 @@ import concurrent.futures
 import os
 import csv
 import logging
+from scipy.signal import filtfilt, butter, savgol_filter
+
 
 class DataProcessor:
     def __init__(self, visualization_widget):
         self.visualization_widget = visualization_widget
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.cycle_num = 0
+        self.dofcorr = {"LHip": (36, 37, 38), "LKnee": (39, 40, 41), "LAnkle": (42, 43, 44),
+                        "RHip": (27, 28, 29), "RKnee": (30, 31, 32), "RAnkle": (33, 34, 35),
+                        "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),
+                        "RShoulder": (9, 10, 11), "RElbow": (12, 13, 14), "RWrist": (15, 16, 17),
+                        "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
 
     def start_new_cycle(self, cycledata):
         logging.info("Début d'un nouveau cycle détecté.")
@@ -29,19 +36,128 @@ class DataProcessor:
             kinematic_dynamic_result = results[0]
             gait_parameters = results[1]
             cycledata['gait_parameter'] = gait_parameters
-            self.cycle_num += 1
 
+            angle_data = {}
+            moment = {}
+            for key, indices in self.dofcorr.items():
+                angle_data[key] = np.array([cycledata['Angle'][indices[0]],
+                                            cycledata['Angle'][indices[1]],
+                                            cycledata['Angle'][indices[2]]])
+                keyt = f"Tau_{key}"
+                moment[keyt] = np.array([kinematic_dynamic_result[indices[0]],
+                                            kinematic_dynamic_result[indices[1]],
+                                            kinematic_dynamic_result[indices[2]]])
+
+            cycledata['Angle'] = []
+            cycledata['Angle'] = angle_data
+            cycledata['Tau'] = []
+            cycledata['Tau'] = moment
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
+            self.cycle_num += 1
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du nouveau cycle : {e}")
 
-
     @staticmethod
-    def calculate_kinematic_dynamic(forcedata, angle):
-        logging.info("Calcul de la dynamique inverse...")
-        # Ajoutez ici la logique de calcul
+    def forcedatafilter(data, order, sampling_rate, cutoff_freq):
+        nyquist = 0.5 * sampling_rate
+        normal_cutoff = cutoff_freq / nyquist
+        b, a = butter(order, normal_cutoff, btype='low', analog=False)
+        filtered_data = np.empty([len(data[:, 0]), len(data[0, :])])
+        for ii in range(3):
+            filtered_data[ii, :] = filtfilt(b, a, data[ii, :], axis=0)
+        return filtered_data
+
+
+    def calculate_kinematic_dynamic(self, forcedata, angle):
+        if self.visualization_widget.model:
+            logging.info("Calcul de la dynamique inverse...")
+            contact_names = ["LFoot", "RFoot"]
+            num_contacts = len(contact_names)
+            num_frames = len(angle[0, :])
+            sampling_factor = 20
+
+            # Initialize arrays for storing external forces and moments
+            force_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
+            moment_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
+            cop_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
+            moment_origin_adjusted = np.zeros((num_contacts, 3, sampling_factor * num_frames))
+            platform_origin = np.zeros((num_contacts, 3, 1))
+
+            # Process force platform data
+            for contact_idx, contact_name in enumerate(contact_names):
+                force_filtered[contact_idx] = self.forcedatafilter(forcedata[f"Force_{contact_idx + 1}"], 4, 2000, 10)
+                moment_filtered[contact_idx] = self.forcedatafilter(forcedata[f"Moment_{contact_idx + 1}"] / 1000, 4, 2000, 10)
+                cop_filtered[contact_idx] = self.forcedatafilter(forcedata[f"CoP_{contact_idx + 1}"] / 1000, 4, 2000, 10)
+
+                #platform_origin[contact_idx, :, 0] = np.mean(platform_data['corners'], axis=1) / 1000
+
+                for frame in range(sampling_factor * num_frames):
+                    r = platform_origin[contact_idx, :, 0] - cop_filtered[contact_idx, :, frame]
+                    moment_offset = np.cross(r, force_filtered[contact_idx, :, frame])
+                    moment_origin_adjusted[contact_idx, :, frame] = moment_filtered[contact_idx, :, frame] + moment_offset
+
+            # Assign the adjusted moments back to the filtered array
+            moment_filtered = moment_origin_adjusted
+
+            # Initialize arrays for storing forces and points of application
+            self.force = np.empty((num_contacts, 9, num_frames))
+            point_application = np.zeros((num_contacts, 3, num_frames))
+
+            # Apply Savitzky-Golay filter for smoothing the position data
+            q = savgol_filter(angle, 30, 3)
+
+            # Initialize arrays for angular velocity and acceleration
+            angular_velocity = np.gradient(q, axis=1, edge_order=2) / (1 / 100)
+            angular_acceleration = np.gradient(angular_velocity, axis=1, edge_order=2) / (1 / 100)
+
+            # Assign filtered kinematic data
+            qdot = angular_velocity
+            qddot = angular_acceleration
+
+            tau_data = []
+
+            # Perform inverse dynamics frame-by-frame
+            for i in range(num_frames):
+                self.ext_load = self.visualization_widget.model.externalForceSet()
+
+                for contact_idx, contact_name in enumerate(contact_names):
+                    name = biorbd.String(contact_name)
+
+                    # Extract the spatial vector (moment and force) in the global frame
+                    spatial_vector = np.concatenate((moment_filtered[contact_idx, :, sampling_factor * i],
+                                                     force_filtered[contact_idx, :, sampling_factor * i]))
+
+                    # Define the application point in the global frame
+                    point_application[contact_idx, :, i] = cop_filtered[contact_idx, :, sampling_factor * i]
+                    point_app_global = point_application[contact_idx, :, i]
+
+                    # Check if force magnitude is significant
+                    if np.linalg.norm(spatial_vector[3:6]) > 40:
+                        self.ext_load.add(name, spatial_vector, point_app_global)
+                        """
+                        # Store the force data in self.force for later use or analysis
+                        force[contact_idx, 0:3, i] = point_app_global
+                        force[contact_idx, 3:6, i] = force_filtered[contact_idx, :, sampling_factor * i]
+                        force[contact_idx, 6:, i] = moment_filtered[contact_idx, :, sampling_factor * i]
+                        """
+
+                # Calculate the inverse dynamics tau using the model's function
+                tau = self.visualization_widget.model.InverseDynamics(q[:, i], qdot[:, i], qddot[:, i], self.ext_load)
+                tau_data.append(tau.to_array())
+                self.ext_load = []  # Reset external load for the next iteration
+
+            # Convert tau_data to numpy array and store the results
+            tau_data = np.array(tau_data)
+            tau = tau_data.T  # Transpose to match expected output format
+            return tau
+        else:
+            print('ID was not performed please add a model')
+            tau = []
+            return tau
+
+
 
     @staticmethod
     def calculate_gait_parameters(forcedata, mksdata):

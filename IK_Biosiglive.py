@@ -10,72 +10,108 @@ def detect_start(previous_f_z, current_f_z, threshold=30):
     return previous_f_z <= threshold < current_f_z
 
 
+class RealTimeDataProcessor:
+    def __init__(self, server_ip="127.0.0.1", port=50000, data_path="walkAll_LAO01_Cond10.bio",
+                 model_path="C:\\Users\\felie\\PycharmProjects\\walkerKinematicReconstruction\\walker\\LAO.bioMod",
+                 threshold=30, system_rate=100, device_rate=2000, nb_markers=49, nb_seconds=1):
+        # Initialisation du serveur
+        self.server = Server(server_ip, port)
+        self.server.start()
+
+        # Initialisation de l'interface
+        self.interface = MyInterface(system_rate=system_rate, data_path=data_path)
+        self.model_path = model_path
+
+        # Paramètres
+        self.threshold = threshold
+        self.system_rate = system_rate
+        self.device_rate = device_rate
+        self.nb_markers = nb_markers
+        self.nb_seconds = nb_seconds
+
+        # Variables d'état
+        self.sending_started = False
+        self.previous_fz = 0  # Valeur initiale de Fz
+
+        # Chargement des noms des marqueurs
+        self.mks_name = self.load_marker_names()
+
+        # Configuration de l'interface
+        self.setup_interface()
+
+    def load_marker_names(self):
+        # Chargement des noms des marqueurs à partir du fichier
+        tmp = load("walkAll_LAO01_Cond10.bio")
+        return tmp['markers_names'].data[0:self.nb_markers].tolist()
+
+    def setup_interface(self):
+        # Configuration du jeu de marqueurs
+        self.interface.add_marker_set(
+            nb_markers=self.nb_markers,
+            data_buffer_size=self.system_rate * self.nb_seconds,
+            processing_window=self.system_rate * self.nb_seconds,
+            marker_data_file_key="markers",
+            name="markers",
+            rate=self.system_rate,
+            kinematics_method=InverseKinematicsMethods.BiorbdKalman,
+            model_path=self.model_path,
+            unit="mm",
+        )
+
+        # Configuration du dispositif (tapis roulant)
+        self.interface.add_device(
+            18,
+            name="Treadmill",
+            device_type=DeviceType.Generic,
+            rate=self.device_rate,
+            data_buffer_size=int(self.device_rate * self.nb_seconds),
+            processing_window=int(self.device_rate * self.nb_seconds),
+            device_data_file_key="treadmill",
+        )
+
+    def process_data(self):
+        try:
+            while True:
+                tic = time.perf_counter()
+                dataforce = self.interface.get_device_data(device_name="Treadmill")
+
+                # Calcul de la force verticale moyenne actuelle
+                current_fz = np.mean(dataforce[2])
+
+                if not self.sending_started and detect_start(self.previous_fz, current_fz, self.threshold):
+                    self.sending_started = True
+                    print("Démarrage de l'envoi des données.")
+
+                elif self.sending_started:
+                    connection, message = self.server.client_listening()  # Non-bloquant
+                    Q, _ = self.interface.get_kinematics_from_markers(marker_set_name="markers", get_markers_data=True)
+                    mark_tmp, _ = self.interface.get_marker_set_data()
+
+                    if connection:
+                        dataAll = {
+                            "Force": dataforce,
+                            "Markers": mark_tmp,
+                            "Angle": Q[:, -1],
+                            "MarkersNames": self.mks_name
+                        }
+                        self.server.send_data(dataAll, connection, message)
+
+                # Mettre à jour la valeur précédente de Fz
+                self.previous_fz = current_fz
+                loop_time = time.perf_counter() - tic
+                real_time_to_sleep = max(0, (1/self.system_rate) - loop_time)
+                if real_time_to_sleep > 0:
+                    time.sleep(real_time_to_sleep)
+
+        except KeyboardInterrupt:
+            print("Arrêt manuel du programme.")
+        except Exception as e:
+            print(f"Erreur rencontrée : {e}")
+        finally:
+            self.server.stop()
+            print("Serveur arrêté proprement.")
+
+
 if __name__ == "__main__":
-    server_ip = "127.0.0.1"
-    port = 50000
-    server = Server(server_ip, port)
-    server.start()
-
-    # Charger une seule fois les noms des marqueurs
-    tmp = load("walkAll_LAO01_Cond10.bio")
-    mks_name = tmp['markers_names'].data[0:49].tolist()
-
-    # Interface setup
-    interface = MyInterface(system_rate=100, data_path="walkAll_LAO01_Cond10.bio")
-    nb_second = 1
-    interface.add_marker_set(
-        nb_markers=49,
-        data_buffer_size=100 * nb_second,
-        processing_window=100 * nb_second,
-        marker_data_file_key="markers",
-        name="markers",
-        rate=100,
-        kinematics_method=InverseKinematicsMethods.BiorbdKalman,
-        model_path="C:\\Users\\felie\\PycharmProjects\\walkerKinematicReconstruction\\walker\\LAO.bioMod",
-        unit="mm",
-    )
-
-    interface.add_device(
-        12,
-        name="Treadmill",
-        device_type=DeviceType.Generic,
-        rate=2000,
-        data_buffer_size=int(3000 * nb_second),
-        processing_window=int(3000 * nb_second),
-        device_data_file_key="treadmill",
-    )
-
-    sending_started = False
-    threshold = 30  # Seuil de force verticale
-    Fs_PF = 2000
-
-    previous_fz = 0  # Valeur initiale de Fz (inférieur au seuil)
-
-    while True:
-        tic = time.perf_counter()
-        dataforce = interface.get_device_data(device_name="Treadmill")
-
-        # Calcul de la force verticale moyenne actuelle
-        current_fz = np.mean(dataforce[2])
-
-        if not sending_started:
-            # Détecter le passage de inférieur à supérieur au seuil
-            if detect_start(previous_fz, current_fz, threshold):
-                sending_started = True
-                print("Démarrage de l'envoi des données.")
-        else:
-            connection, message = server.client_listening()  # Non-bloquant
-            Q, _ = interface.get_kinematics_from_markers(marker_set_name="markers", get_markers_data=True)
-            mark_tmp, _ = interface.get_marker_set_data()
-
-            if connection:
-                dataAll = {"Force": dataforce, "Markers": mark_tmp, "Angle": Q[:, -1], "MarkersNames": mks_name}
-                server.send_data(dataAll, connection, message)
-
-        # Mettre à jour la valeur précédente de Fz
-        previous_fz = current_fz
-        dataforce=[]
-        loop_time = time.perf_counter() - tic
-        real_time_to_sleep = max(0, 0.01 - loop_time)  # Fréquence de 100 Hz
-        if real_time_to_sleep > 0:
-            time.sleep(real_time_to_sleep)
+    processor = RealTimeDataProcessor()
+    processor.process_data()

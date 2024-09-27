@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from pyScienceMode import Channel, Device, Modes
 from pyScienceMode import RehastimP24 as St
+import biorbd
 
 # Configure le logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,6 +28,9 @@ class VisualizationWidget(QWidget):
             'LHip': {},
             'LKnee': {},
             'LAnkle': {},
+            'Tau_LHip': {},
+            'Tau_LKnee': {},
+            'Tau_LAnkle': {},
             'StanceDuration_L': {},
             'PropulsionDuration_L': {},
             'Force_1': {}
@@ -89,13 +93,13 @@ class VisualizationWidget(QWidget):
         form_layout.addWidget(self.stimulator_checkbox)
         form_layout.addWidget(QLabel('Name:'))
         form_layout.addWidget(self.name_input)
-        form_layout.addWidget(QLabel('Amplitude:'))
+        form_layout.addWidget(QLabel('Amplitude [mA]:'))
         form_layout.addWidget(self.amplitude_input)
-        form_layout.addWidget(QLabel('Fréquence:'))
+        form_layout.addWidget(QLabel('Fréquence [Hz]:'))
         form_layout.addWidget(self.frequence_input)
-        form_layout.addWidget(QLabel('Durée:'))
+        form_layout.addWidget(QLabel('Durée [ms]:'))
         form_layout.addWidget(self.duree_input)
-        form_layout.addWidget(QLabel('Largeur:'))
+        form_layout.addWidget(QLabel('Largeur [\u03BCs]:'))
         form_layout.addWidget(self.largeur_input)
         form_layout.addWidget(QLabel('Mode:'))
         form_layout.addWidget(self.mode_combo)
@@ -291,6 +295,7 @@ class VisualizationWidget(QWidget):
         if file_name:
             # Affiche le nom du fichier dans l'étiquette
             self.label.setText(f"Fichier sélectionné : {file_name}")
+            self.model = biorbd.Model(file_name)
 
     def save_path(self):
         self.path_to_saveData = self.nom_input.text()

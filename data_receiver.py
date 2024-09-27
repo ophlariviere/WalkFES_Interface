@@ -44,8 +44,8 @@ class DataReceiver(QObject):
 
                 frc_data = {}
                 for pfnum in [1, 2]:
-                    start_idx = (pfnum - 1) * 6
-                    for i, comp in enumerate(['Force', 'Moment']):
+                    start_idx = (pfnum - 1) * 9
+                    for i, comp in enumerate(['Force', 'Moment', 'CoP']):
                         key = f"{comp}_{pfnum}"
                         frc_data[key] = np.array([
                             received_data['Force'][start_idx + 3 * i][:],
@@ -54,10 +54,16 @@ class DataReceiver(QObject):
                         ])
 
                 angle_data = {}
+                """
                 for key, indices in self.dofcorr.items():
                     angle_data[key] = np.array([[received_data['Angle'][indices[0]]],
                                                 [received_data['Angle'][indices[1]]],
                                                 [received_data['Angle'][indices[2]]]])
+                """
+                angle_data = received_data['Angle']
+                angle_data = np.array(angle_data)
+                angle_data = angle_data[:, np.newaxis]
+
 
                 received_data = {"Force": frc_data, "Markers": mks_data, "Angle": angle_data}
 
