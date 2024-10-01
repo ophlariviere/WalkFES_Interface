@@ -25,15 +25,20 @@ class VisualizationWidget(QWidget):
         self.stimulator_is_active = False
         self.title = 'Interface Stim'
         self.DataToPlot = {
+            'Force_1': {},
             'LHip': {},
             'LKnee': {},
             'LAnkle': {},
             'Tau_LHip': {},
             'Tau_LKnee': {},
             'Tau_LAnkle': {},
-            'StanceDuration_L': {},
+            'q_LHip': {},
+            'q_LKnee': {},
+            'q_LAnkle': {},
+            'qdot_LHip': {},
+            'qdot_LKnee': {},
+            'qdot_LAnkle': {},
             'PropulsionDuration_L': {},
-            'Force_1': {}
         }
         self.DataToPlotConfigNum = []  # Initialiser la liste pour stocker les numéros de configuration
         self.init_ui()
@@ -233,8 +238,15 @@ class VisualizationWidget(QWidget):
             if isinstance(value, (np.ndarray, list)):  # Check for array-like objects
                 value = np.array(value)  # Ensure it's a NumPy array if it's not already
                 if value.ndim == 2:  # Check the number of dimensions
-                    interpolated_vector = self.interpolate_vector(value[1, :])
-                    self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector*180/3.14)
+                    if 'Force' in key or 'Moment' in key:
+                        interpolated_vector = self.interpolate_vector(value[2, :]) #TODO change to select axis
+                        self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
+                    else:
+                        interpolated_vector = self.interpolate_vector(value[1, :])
+                        if 'Tau' in key:
+                            self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector/58)
+                        else:
+                            self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector*180/3.14)
                 else:
                     self.DataToPlot[key][self.stimConfigValue].append(value)
             elif isinstance(value, (int, float)):  # Handle scalar numbers separately
@@ -342,7 +354,6 @@ class VisualizationWidget(QWidget):
 
             ax.plot(x_percentage, mean_vector, label=f'Stim: {stim_config}')
             ax.fill_between(x_percentage, mean_vector - std_vector, mean_vector + std_vector, alpha=0.2)
-
         ax.set_xlabel('Percentage of Cycle')
         ax.set_ylabel(ylabel)
         ax.set_title(f'{ylabel} by Stimulation Configuration')

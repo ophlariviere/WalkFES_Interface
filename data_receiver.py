@@ -5,7 +5,6 @@ from biosiglive import TcpClient
 from PyQt5.QtCore import QObject
 import logging
 from data_processor import DataProcessor
-from visualization import VisualizationWidget
 
 class DataReceiver(QObject):
     def __init__(self, server_ip, server_port, visualization_widget, read_frequency=100, threshold=30):
@@ -34,7 +33,7 @@ class DataReceiver(QObject):
             tic = time.time()
             try:
                 received_data = self.tcp_client.get_data_from_server(
-                    command=['Force', 'Markers', 'Angle', 'MarkersNames'])
+                    command=['Force', 'Markers', 'MarkersNames'])
 
                 # Organisation des données reçues
                 mks_data = {}
@@ -53,19 +52,9 @@ class DataReceiver(QObject):
                             received_data['Force'][start_idx + 3 * i + 2][:]
                         ])
 
-                angle_data = {}
-                """
-                for key, indices in self.dofcorr.items():
-                    angle_data[key] = np.array([[received_data['Angle'][indices[0]]],
-                                                [received_data['Angle'][indices[1]]],
-                                                [received_data['Angle'][indices[2]]]])
-                """
-                angle_data = received_data['Angle']
-                angle_data = np.array(angle_data)
-                angle_data = angle_data[:, np.newaxis]
 
-
-                received_data = {"Force": frc_data, "Markers": mks_data, "Angle": angle_data}
+                received_data = {}
+                received_data = {"Force": frc_data, "Markers": mks_data}
 
                 # Utilisation de thread pour traiter les données en parallèle
                 thread_stimulation = threading.Thread(target=self.check_stimulation, args=(received_data,))

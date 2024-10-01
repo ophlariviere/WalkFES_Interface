@@ -4,7 +4,7 @@ import concurrent.futures
 import os
 import csv
 import logging
-from scipy.signal import filtfilt, butter, savgol_filter
+from scipy.signal import filtfilt, butter, savgol_filter, medfilt
 
 
 class DataProcessor:
@@ -21,10 +21,16 @@ class DataProcessor:
     def start_new_cycle(self, cycledata):
         logging.info("Début d'un nouveau cycle détecté.")
         try:
-            futures = [
-                self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Angle']),
-                self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers'])
-            ]
+            futures = []
+
+            # Check if self.model exists before adding the kinematic dynamic calculation
+            if self.visualization_widget.model is not None:
+                futures.append(
+                    self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Markers']))
+
+            # Always add the gait parameters calculation
+            futures.append(
+                self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers']))
 
             results = []
             for future in futures:
@@ -33,25 +39,46 @@ class DataProcessor:
                 except Exception as e:
                     logging.error(f"Erreur lors de l'exécution du thread : {e}")
 
-            kinematic_dynamic_result = results[0]
-            gait_parameters = results[1]
-            cycledata['gait_parameter'] = gait_parameters
+            # Extract results
+            if self.visualization_widget.model is not None:
+                kinematic_dynamic_result = results[0][0]
+                q=results[0][1]
+                qdot=results[0][2]
+                #qddot=results[0][3]
 
-            angle_data = {}
-            moment = {}
-            for key, indices in self.dofcorr.items():
-                angle_data[key] = np.array([cycledata['Angle'][indices[0]],
-                                            cycledata['Angle'][indices[1]],
-                                            cycledata['Angle'][indices[2]]])
-                keyt = f"Tau_{key}"
-                moment[keyt] = np.array([kinematic_dynamic_result[indices[0]],
-                                            kinematic_dynamic_result[indices[1]],
-                                            kinematic_dynamic_result[indices[2]]])
+                gait_parameters = results[1]
+                cycledata['gait_parameter'] = gait_parameters
 
-            cycledata['Angle'] = []
-            cycledata['Angle'] = angle_data
-            cycledata['Tau'] = []
-            cycledata['Tau'] = moment
+
+                moment = {}
+                Ang = {}
+                VitAng = {}
+                for key, indices in self.dofcorr.items():
+                    keyt = f"Tau_{key}"
+                    moment[keyt] = np.array([kinematic_dynamic_result[indices[0]],
+                                             kinematic_dynamic_result[indices[1]],
+                                             kinematic_dynamic_result[indices[2]]])
+
+                    keyq = f"q_{key}"
+                    Ang[keyq] = np.array([q[indices[0]],
+                                             q[indices[1]],
+                                             q[indices[2]]])
+
+                    keyqdot = f"qdot_{key}"
+                    VitAng[keyqdot] = np.array([qdot[indices[0]],
+                                             qdot[indices[1]],
+                                             qdot[indices[2]]])
+
+                cycledata['Tau'] = moment
+                cycledata['VitAng'] = VitAng
+                cycledata['Angle'] = Ang
+
+            else:
+                # If self.model does not exist, handle only the gait parameters
+                gait_parameters = results[0]
+                cycledata['gait_parameter'] = gait_parameters
+                logging.info("Kinematic dynamic calculation skipped as self.model is not defined.")
+
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
             self.cycle_num += 1
@@ -66,13 +93,56 @@ class DataProcessor:
         b, a = butter(order, normal_cutoff, btype='low', analog=False)
         filtered_data = np.empty([len(data[:, 0]), len(data[0, :])])
         for ii in range(3):
+            #filtered_data[ii, :] = medfilt(data[ii, :], kernel_size=5)
             filtered_data[ii, :] = filtfilt(b, a, data[ii, :], axis=0)
         return filtered_data
 
 
-    def calculate_kinematic_dynamic(self, forcedata, angle):
+    def calculate_kinematic_dynamic(self, forcedata, mks):
         if self.visualization_widget.model:
             logging.info("Calcul de la dynamique inverse...")
+            # Récupération des informations de base
+            n_frames = next(iter(mks.values())).shape[1]
+            marker_names = tuple(n.to_string() for n in self.visualization_widget.model.technicalMarkerNames())
+
+
+            # Créer un array de NaN pour stocker les données des marqueurs
+            markers_in_c3d = np.full((3, len(marker_names), n_frames), np.nan)
+
+            # Remplir le tableau avec les données des marqueurs à partir du dictionnaire 'mks'
+            for i, name in enumerate(marker_names):
+                if name in mks:
+                    filtmks = self.forcedatafilter(mks[name],4,100,10)
+                    markers_in_c3d[:, i, :] = filtmks # Conversion en mètres si les données sont en mm
+
+            # Créer une structure de filtre de Kalman
+            freq = 100
+            params = biorbd.KalmanParam(freq)
+            kalman = biorbd.KalmanReconsMarkers(self.visualization_widget.model, params)
+
+            # Configuration de la boucle d'exécution
+            q = biorbd.GeneralizedCoordinates(self.visualization_widget.model)
+            qdot = biorbd.GeneralizedVelocity(self.visualization_widget.model)
+            qddot = biorbd.GeneralizedAcceleration(self.visualization_widget.model)
+            frame_rate = 100
+            first_frame = 0  # Commence à la première frame
+            last_frame = n_frames - 1  # Termine à la dernière frame
+            t = np.linspace(first_frame / frame_rate, last_frame / frame_rate, n_frames)
+
+            # Initialiser les tableaux de sortie pour toutes les frames
+            q_out = np.ndarray((self.visualization_widget.model.nbQ(), n_frames))
+            qdot_out = np.ndarray((self.visualization_widget.model.nbQdot(), n_frames))
+            qddot_out = np.ndarray((self.visualization_widget.model.nbQddot(), n_frames))
+
+            # Application du filtre de Kalman pour chaque frame
+            for i in range(n_frames):
+                kalman.reconstructFrame(self.visualization_widget.model, np.reshape(markers_in_c3d[:, :, i].T, -1), q, qdot, qddot)
+                q_out[:, i] = q.to_array()
+                qdot_out[:, i] = qdot.to_array()
+                qddot_out[:, i] = qddot.to_array()
+
+            angle=q_out
+
             contact_names = ["LFoot", "RFoot"]
             num_contacts = len(contact_names)
             num_frames = len(angle[0, :])
@@ -82,39 +152,27 @@ class DataProcessor:
             force_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
             moment_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
             cop_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
-            moment_origin_adjusted = np.zeros((num_contacts, 3, sampling_factor * num_frames))
-            platform_origin = np.zeros((num_contacts, 3, 1))
+            platform_origin = np.array([[[0.79165588], [0.77004227], [0.00782072]],
+                               [[0.7856461], [0.2547548], [0.00760771]]])
 
             # Process force platform data
             for contact_idx, contact_name in enumerate(contact_names):
-                force_filtered[contact_idx] = self.forcedatafilter(forcedata[f"Force_{contact_idx + 1}"], 4, 2000, 10)
-                moment_filtered[contact_idx] = self.forcedatafilter(forcedata[f"Moment_{contact_idx + 1}"] / 1000, 4, 2000, 10)
-                cop_filtered[contact_idx] = self.forcedatafilter(forcedata[f"CoP_{contact_idx + 1}"] / 1000, 4, 2000, 10)
-
-                #platform_origin[contact_idx, :, 0] = np.mean(platform_data['corners'], axis=1) / 1000
-
-                for frame in range(sampling_factor * num_frames):
-                    r = platform_origin[contact_idx, :, 0] - cop_filtered[contact_idx, :, frame]
-                    moment_offset = np.cross(r, force_filtered[contact_idx, :, frame])
-                    moment_origin_adjusted[contact_idx, :, frame] = moment_filtered[contact_idx, :, frame] + moment_offset
-
-            # Assign the adjusted moments back to the filtered array
-            moment_filtered = moment_origin_adjusted
+                force_filtered[contact_idx] = self.forcedatafilter(forcedata[f"Force_{contact_idx + 1}"], 4,
+                                                                   2000, 10)
+                moment_filtered[contact_idx] = self.forcedatafilter(forcedata[f"Moment_{contact_idx + 1}"]/1000, 4,
+                                                                    2000, 10)
+                #cop_filtered[contact_idx] = self.forcedatafilter(forcedata[f"CoP_{contact_idx + 1}"] / 1000, 4, 2000, 10)
 
             # Initialize arrays for storing forces and points of application
             self.force = np.empty((num_contacts, 9, num_frames))
             point_application = np.zeros((num_contacts, 3, num_frames))
 
-            # Apply Savitzky-Golay filter for smoothing the position data
-            q = savgol_filter(angle, 30, 3)
+            # Appliquer le filtre Savitzky-Golay à chaque signal
+            q = savgol_filter(angle, 31, 3, axis=1)
 
             # Initialize arrays for angular velocity and acceleration
-            angular_velocity = np.gradient(q, axis=1, edge_order=2) / (1 / 100)
-            angular_acceleration = np.gradient(angular_velocity, axis=1, edge_order=2) / (1 / 100)
-
-            # Assign filtered kinematic data
-            qdot = angular_velocity
-            qddot = angular_acceleration
+            qdot = np.gradient(q, axis=1, edge_order=2) / (1 / 100)
+            qddot = np.gradient(qdot, axis=1, edge_order=2) / (1 / 100)
 
             tau_data = []
 
@@ -130,18 +188,11 @@ class DataProcessor:
                                                      force_filtered[contact_idx, :, sampling_factor * i]))
 
                     # Define the application point in the global frame
-                    point_application[contact_idx, :, i] = cop_filtered[contact_idx, :, sampling_factor * i]
-                    point_app_global = point_application[contact_idx, :, i]
+                    point_app_global = platform_origin[contact_idx, :, 0] #cop_filtered[contact_idx, :, sampling_factor * i]#
 
                     # Check if force magnitude is significant
                     if np.linalg.norm(spatial_vector[3:6]) > 40:
                         self.ext_load.add(name, spatial_vector, point_app_global)
-                        """
-                        # Store the force data in self.force for later use or analysis
-                        force[contact_idx, 0:3, i] = point_app_global
-                        force[contact_idx, 3:6, i] = force_filtered[contact_idx, :, sampling_factor * i]
-                        force[contact_idx, 6:, i] = moment_filtered[contact_idx, :, sampling_factor * i]
-                        """
 
                 # Calculate the inverse dynamics tau using the model's function
                 tau = self.visualization_widget.model.InverseDynamics(q[:, i], qdot[:, i], qddot[:, i], self.ext_load)
@@ -151,7 +202,7 @@ class DataProcessor:
             # Convert tau_data to numpy array and store the results
             tau_data = np.array(tau_data)
             tau = tau_data.T  # Transpose to match expected output format
-            return tau
+            return tau, q, qdot, qddot
         else:
             print('ID was not performed please add a model')
             tau = []
@@ -172,7 +223,7 @@ class DataProcessor:
         mks2 = mksdata['RCAL']
         RapportFs=len(mks1[0])/len(fx_pf2)
         rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
-        ltoe_off = np.where(fz_pf1 < 20)[0][0]
+        ltoe_off = np.where(fz_pf1[:-20] > 30)[0][-2]
 
         gait_param = {
             'StanceDuration_L': 100 * (ltoe_off / fs_pf),
@@ -181,8 +232,8 @@ class DataProcessor:
             'StepWidth': np.abs(np.mean(mks1[1, :]) - np.mean(mks2[1, :])),
             'StepLength_L': mks1[0, -1] - mks2[0, -1],
             'StepLength_R': mks2[0, int(rheel_strikes * RapportFs)] - mks1[0, int(rheel_strikes * RapportFs )],
-            'PropulsionDuration_L': len(np.where(fx_pf1 < -6)[0]) / fs_pf,
-            'PropulsionDuration_R': len(np.where(fx_pf2 < -6)[0]) / fs_pf,
+            'PropulsionDuration_L': len(np.where(fx_pf1 > 6)[0]) / fs_pf,
+            'PropulsionDuration_R': len(np.where(fx_pf2 > 6)[0]) / fs_pf,
             'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
         }
         return gait_param

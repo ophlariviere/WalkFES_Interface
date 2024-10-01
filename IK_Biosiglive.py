@@ -11,8 +11,8 @@ def detect_start(previous_f_z, current_f_z, threshold=30):
 
 
 class RealTimeDataProcessor:
-    def __init__(self, server_ip="127.0.0.1", port=50000, data_path="walkAll_LAO01_Cond10.bio",
-                 model_path="C:\\Users\\felie\\PycharmProjects\\walkerKinematicReconstruction\\walker\\LAO.bioMod",
+    def __init__(self, server_ip="127.0.0.1", port=50000, data_path="example\\walkAll_LAO01_Cond10.bio",
+                 model_path="example\\LAO.bioMod",
                  threshold=30, system_rate=100, device_rate=2000, nb_markers=49, nb_seconds=1):
         # Initialisation du serveur
         self.server = Server(server_ip, port)
@@ -41,7 +41,7 @@ class RealTimeDataProcessor:
 
     def load_marker_names(self):
         # Chargement des noms des marqueurs à partir du fichier
-        tmp = load("walkAll_LAO01_Cond10.bio")
+        tmp = load("example\\walkAll_LAO01_Cond10.bio")
         return tmp['markers_names'].data[0:self.nb_markers].tolist()
 
     def setup_interface(self):
@@ -74,6 +74,8 @@ class RealTimeDataProcessor:
             while True:
                 tic = time.perf_counter()
                 dataforce = self.interface.get_device_data(device_name="Treadmill")
+                #Q, _, mark_tmp = self.interface.get_kinematics_from_markers(marker_set_name="markers", get_markers_data=True)
+                mark_tmp, _ = self.interface.get_marker_set_data()
 
                 # Calcul de la force verticale moyenne actuelle
                 current_fz = np.mean(dataforce[2])
@@ -84,16 +86,13 @@ class RealTimeDataProcessor:
 
                 elif self.sending_started:
                     connection, message = self.server.client_listening()  # Non-bloquant
-                    Q, _ = self.interface.get_kinematics_from_markers(marker_set_name="markers", get_markers_data=True)
-                    mark_tmp, _ = self.interface.get_marker_set_data()
-
                     if connection:
                         dataAll = {
                             "Force": dataforce,
                             "Markers": mark_tmp,
-                            "Angle": Q[:, -1],
                             "MarkersNames": self.mks_name
                         }
+                        #"Angle": Q[:, -1],
                         self.server.send_data(dataAll, connection, message)
 
                 # Mettre à jour la valeur précédente de Fz
