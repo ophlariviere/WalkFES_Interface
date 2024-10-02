@@ -24,6 +24,8 @@ class VisualizationWidget(QWidget):
         self.label = None
         self.stimulator_is_active = False
         self.title = 'Interface Stim'
+        self.channels = []  # Store the channel objects
+        self.channel_inputs = []  #
         self.DataToPlot = {
             'Force_1': {},
             'LHip': {},
@@ -81,45 +83,29 @@ class VisualizationWidget(QWidget):
         layout.addWidget(groupbox_save)
 
         # Section des paramètres de stimulation
-        form_layout = QHBoxLayout()
-        self.amplitude_input = QLineEdit(self)
-        self.frequence_input = QLineEdit(self)
-        self.duree_input = QLineEdit(self)
-        self.largeur_input = QLineEdit(self)
-        self.name_input = QLineEdit(self)
-        self.mode_combo = QComboBox(self)
-        self.mode_combo.addItems(["SINGLE", "DOUBLET", "TRIPLET"])
+        form_layout = QVBoxLayout()  # Changed to QVBoxLayout for better organization
 
-        # Checkbox pour activer/désactiver le stimulateur
-        self.stimulator_checkbox = QCheckBox('Activer stimulateur', self)
-        self.stimulator_checkbox.stateChanged.connect(self.on_stimulator_checkbox_toggled)
+        # Ajouter le QComboBox pour sélectionner le nombre de canaux
+        stimchannum_layout = QHBoxLayout()
+        self.num_channels_combo = QComboBox(self)
+        self.num_channels_combo.addItems([str(i) for i in range(1, 5)])  # Allow selection between 1 and 4 channels
+        self.num_channels_combo.currentIndexChanged.connect(self.update_channel_inputs)
+        stimchannum_layout.addWidget(QLabel('Nombre de canaux:'))
+        stimchannum_layout.addWidget(self.num_channels_combo)
+        form_layout.addLayout(stimchannum_layout)
+        # Initialize the groupbox_params here before calling update_channel_inputs
+        self.groupbox_params = QGroupBox("Paramètres de Stimulation")
+        self.groupbox_params.setLayout(form_layout)
+        self.groupbox_params.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        layout.addWidget(self.groupbox_params)
 
-        # Ajouter les widgets au layout
-        form_layout.addWidget(self.stimulator_checkbox)
-        form_layout.addWidget(QLabel('Name:'))
-        form_layout.addWidget(self.name_input)
-        form_layout.addWidget(QLabel('Amplitude [mA]:'))
-        form_layout.addWidget(self.amplitude_input)
-        form_layout.addWidget(QLabel('Fréquence [Hz]:'))
-        form_layout.addWidget(self.frequence_input)
-        form_layout.addWidget(QLabel('Durée [ms]:'))
-        form_layout.addWidget(self.duree_input)
-        form_layout.addWidget(QLabel('Largeur [\u03BCs]:'))
-        form_layout.addWidget(self.largeur_input)
-        form_layout.addWidget(QLabel('Mode:'))
-        form_layout.addWidget(self.mode_combo)
+        # Now call the method to populate initial channel inputs
+        self.update_channel_inputs()
 
-        # Ajouter un bouton pour actualiser la stimulation
+        # Ajouter le bouton 'Actualiser stim' sous les paramètres de canaux
         self.ActuStim_button = QPushButton('Actualiser stim', self)
         self.ActuStim_button.clicked.connect(self.stim_actu_clicked)
         form_layout.addWidget(self.ActuStim_button)
-
-        # GroupBox pour les paramètres
-        groupbox_params = QGroupBox("Paramètres de Stimulation")
-        groupbox_params.setLayout(form_layout)
-        groupbox_params.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
-        groupbox_params.setMaximumHeight(80)
-        layout.addWidget(groupbox_params)
 
         # Sélections d'analyse
         analysis_layout = QHBoxLayout()  # Correction ici : initialisation du layout d'analyse
@@ -143,6 +129,76 @@ class VisualizationWidget(QWidget):
 
         self.setLayout(layout)
 
+    def update_channel_inputs(self):
+        # Si c'est la première fois, créer un layout pour les channels
+        if not hasattr(self, 'channels_layout'):
+            self.channels_layout = QVBoxLayout()  # Un layout séparé pour les inputs de channels
+            self.groupbox_params.layout().addLayout(self.channels_layout)  # Ajouter au layout principal
+
+        # Obtenez le nombre de canaux sélectionnés
+        num_channels = int(self.num_channels_combo.currentText())
+
+        # Si le nombre de canaux augmente, ajouter seulement les nouveaux
+        while len(self.channel_inputs) < num_channels:
+            channel_index = len(self.channel_inputs)  # L'indice du nouveau canal à ajouter
+            channel_layout = QHBoxLayout()  # Créez un layout horizontal pour chaque canal
+
+            inputs = {}
+
+            # Ajout des inputs dans le layout
+            inputs['name'] = QLineEdit(self)
+            channel_layout.addWidget(QLabel(f'Canal {channel_index + 1} - Nom:'))
+            channel_layout.addWidget(inputs['name'])
+
+            inputs['amplitude'] = QLineEdit(self)
+            channel_layout.addWidget(QLabel('Amplitude [mA]:'))
+            channel_layout.addWidget(inputs['amplitude'])
+
+            inputs['frequence'] = QLineEdit(self)
+            channel_layout.addWidget(QLabel('Fréquence [Hz]:'))
+            channel_layout.addWidget(inputs['frequence'])
+
+            inputs['duree'] = QLineEdit(self)
+            channel_layout.addWidget(QLabel('Durée [ms]:'))
+            channel_layout.addWidget(inputs['duree'])
+
+            inputs['largeur'] = QLineEdit(self)
+            channel_layout.addWidget(QLabel('Largeur [µs]:'))
+            channel_layout.addWidget(inputs['largeur'])
+
+            inputs['mode'] = QComboBox(self)
+            inputs['mode'].addItems(["SINGLE", "DOUBLET", "TRIPLET"])
+            channel_layout.addWidget(QLabel('Mode:'))
+            channel_layout.addWidget(inputs['mode'])
+
+            # Ajoutez ce layout de canal au layout dédié
+            self.channels_layout.addLayout(channel_layout)
+
+            # Enregistrer les inputs pour un usage futur
+            self.channel_inputs.append(inputs)
+
+        # Si le nombre de canaux diminue, supprimer les canaux en excès
+        while len(self.channel_inputs) > num_channels:
+            inputs_to_remove = self.channel_inputs.pop()  # Supprime les inputs en excès
+            for widget in inputs_to_remove.values():
+                widget.setParent(None)  # Supprime le widget de l'interface sans le détruire immédiatement
+                widget.deleteLater()  # Détruit le widget proprement
+
+        # Nettoyage du layout : s'assurer que tous les widgets sont bien alignés
+        for i in reversed(range(self.channels_layout.count())):
+            layout_item = self.channels_layout.itemAt(i)
+            if isinstance(layout_item, QHBoxLayout):  # Vérifier si c'est un layout de canal
+                if i >= num_channels:  # S'il y a plus de layouts que nécessaire, on supprime
+                    for j in reversed(range(layout_item.count())):
+                        item = layout_item.itemAt(j)
+                        if item.widget() is not None:
+                            item.widget().deleteLater()
+                    self.channels_layout.removeItem(layout_item)
+
+        # Optionnel : Si vous voulez rafraîchir les labels des canaux après modification
+        for channel_index, inputs in enumerate(self.channel_inputs):
+            inputs['name'].setPlaceholderText(f'Canal {channel_index + 1} - Nom:')
+
     def on_stimulator_checkbox_toggled(self, state):
         if state == Qt.Checked:
             logging.info("Stimulator activated.")
@@ -154,23 +210,34 @@ class VisualizationWidget(QWidget):
 
     def activer_stimulateur(self):
         try:
-            self.channel_1 = Channel(
-                "Single", no_channel=1, amplitude=15, pulse_width=250, frequency=25, name="Gastro",
-                device_type=Device.Rehastimp24
-            )
-            self.channel1_duree=1
-            self.stimulator = St(port="COM3")
-            self.stimulator.init_stimulation(list_channels=[self.channel_1])
-            self.stimulator_is_active = True
+            self.channels = []  # Clear previous channels
+            num_channels = int(self.num_channels_combo.currentText())
 
-            print("Fonction d'activation du stimulateur appelée.")
+            for i in range(num_channels):
+                inputs = self.channel_inputs[i]
+                channel = Channel(
+                    mode="Single",
+                    no_channel=i + 1,
+                    amplitude=int(inputs['amplitude'].text()),
+                    pulse_width=int(inputs['largeur'].text()),
+                    frequency=int(inputs['frequence'].text()),
+                    name=inputs['name'].text(),
+                    device_type=Device.Rehastimp24
+                )
+                self.channels.append(channel)
+
+            self.stimulator = St(port="COM3")
+            self.stimulator.init_stimulation(list_channels=self.channels)
+            self.stimulator_is_active = True
+            print("Fonction d'activation du stimulateur appelée pour plusieurs canaux.")
+
         except Exception as e:
             print(f"Erreur lors de l'activation du stimulateur : {e}")
         self.stimConfigValue = 0
 
     def send_stimulation(self):
         if self.stimulator_is_active:
-            self.stimulator.start_stimulation(upd_list_channels=[self.channel_1],  stimulation_duration=self.channel1_duree, safety=True)
+            self.stimulator.start_stimulation(upd_list_channels=[self.channel],  stimulation_duration=self.channel_inputs[0]['duree'], safety=True)
             print("Stimulation envoyée.")
         else :
             print("Stim desactivé")
@@ -185,28 +252,26 @@ class VisualizationWidget(QWidget):
 
     def stim_actu_clicked(self):
         try:
-            # Récupérer les valeurs depuis l'interface utilisateur
-            amplitude = int(self.amplitude_input.text())
-            frequence = int(self.frequence_input.text())
-            duree = int(self.duree_input.text())
-            largeur = int(self.largeur_input.text())
-            mode_text = self.mode_combo.currentText()
+            num_channels = int(self.num_channels_combo.currentText())
 
-            # Définir le mode de stimulation
-            mode = Modes.SINGLE if mode_text == "SINGLE" else Modes.DOUBLET if mode_text == "DOUBLET" else Modes.TRIPLET
+            for i in range(num_channels):
+                inputs = self.channel_inputs[i]
+                amplitude = int(inputs['amplitude'].text())
+                frequence = int(inputs['frequence'].text())
+                duree = int(inputs['duree'].text())
+                largeur = int(inputs['largeur'].text())
+                mode_text = inputs['mode'].currentText()
+                mode = Modes.SINGLE if mode_text == "SINGLE" else Modes.DOUBLET if mode_text == "DOUBLET" else Modes.TRIPLET
 
-            # Mettre à jour les paramètres du canal
-            self.channel_1.set_amplitude(amplitude)
-            self.channel_1.set_pulse_width(largeur)
-            self.channel_1.set_frequency(frequence)
-            self.channel_1.set_mode(mode)
-            self.channel1_duree(duree)
+                # Update channel parameters
+                self.channels[i].set_amplitude(amplitude)
+                self.channels[i].set_pulse_width(largeur)
+                self.channels[i].set_frequency(frequence)
+                self.channels[i].set_mode(mode)
+                self.channel1_duree = duree
 
-            # Mettre à jour la stimulation
-            #self.stimulator.update_stimulation(upd_list_channels=[self.channel_1], stimulation_duration=duree)
-            print(
-                f"Stimulation mise à jour : Amplitude={amplitude}, Fréquence={frequence}, "
-                f"Durée={duree}, Largeur={largeur}, Mode={mode_text}")
+            print("Stimulation mise à jour pour tous les canaux.")
+
         except ValueError:
             print("Erreur : Veuillez entrer des valeurs numériques valides.")
         except Exception as e:

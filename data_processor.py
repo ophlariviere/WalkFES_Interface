@@ -384,13 +384,29 @@ class DataProcessor:
 
     def get_stimulation_config(self):
         try:
-            return {
-                "Amplitude": self.visualization_widget.amplitude_input.text(),
-                "Fréquence": self.visualization_widget.frequence_input.text(),
-                "Durée": self.visualization_widget.duree_input.text(),
-                "Largeur": self.visualization_widget.largeur_input.text(),
-                "Mode": self.visualization_widget.mode_combo.currentText(),
-            }
+            # Create an empty dictionary to store all channel configurations
+            stimulation_config = {}
+
+            # Iterate over all channels stored in visualization_widget.channel_inputs
+            for i, inputs in enumerate(self.visualization_widget.channel_inputs):
+                channel_number = i + 1  # Channel numbers are 1-based
+
+                # Access each input field for the current channel
+                amplitude = inputs['amplitude'].text()
+                frequence = inputs['frequence'].text()
+                duree = inputs['duree'].text()
+                largeur = inputs['largeur'].text()
+                mode = inputs['mode'].currentText()
+
+                # Store each parameter in the dictionary with the appropriate key
+                stimulation_config[f"channel{channel_number}_Amplitude"] = amplitude
+                stimulation_config[f"channel{channel_number}_Fréquence"] = frequence
+                stimulation_config[f"channel{channel_number}_Durée"] = duree
+                stimulation_config[f"channel{channel_number}_Largeur"] = largeur
+                stimulation_config[f"channel{channel_number}_Mode"] = mode
+
+            return stimulation_config
         except Exception as e:
             logging.error(f"Erreur lors de la récupération de la configuration de stimulation : {e}")
             return {}
+
