@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 def main():
     # Définition des paramètres du serveur
-    server_ip = "127.0.0.1"  # Utiliser l'adresse IP du serveur
-    server_port = 50000  # Port à utiliser
+    server_ip = "192.168.0.1"  # Utiliser l'adresse IP du serveur
+    server_port = 7  # Port à utiliser
 
     # Créer une application PyQt5
     app = QApplication(sys.argv)

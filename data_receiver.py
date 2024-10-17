@@ -26,20 +26,36 @@ class DataReceiver(QObject):
                         "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),
                         "RShoulder": (9, 10, 11), "RElbow": (12, 13, 14), "RWrist": (15, 16, 17),
                         "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
+        self.marker_names = None
+        self.first_time = False
 
     def start_receiving(self):
         logging.info("Début de la réception des données...")
         while True:
             tic = time.time()
             try:
-                received_data = self.tcp_client.get_data_from_server(
-                    command=['Force', 'Markers', 'MarkersNames'])
+                if self.first_time:
+                    received_data = self.tcp_client.get_data_from_server(command=['Force', 'Markers', 'MarkersNames'])
+                    # Stocker les noms des marqueurs et désactiver l'envoi futur des noms
+                    if 'MarkersNames' in received_data:
+                        self.marker_names = received_data['MarkersNames']
+                    self.first_time = False  # Après le premier envoi, ne plus demander les noms des marqueurs
+                else:
+                    # Commande sans demander à nouveau les noms des marqueurs
+                    received_data = self.tcp_client.get_data_from_server(command=['Force', 'Markers'])
 
                 # Organisation des données reçues
                 mks_data = {}
-                for i, name in enumerate(received_data['MarkersNames']):
-                    mks_data[name] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
-                                               received_data['Markers'][2][i, :]])
+                if self.marker_names:
+                    for i, name in enumerate(self.marker_names):
+                        mks_data[name] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
+                                                received_data['Markers'][2][i, :]])
+                else:
+                    for i in range(len(received_data['Markers'][0][:, 0])):
+                        mks_data[i] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
+                                                received_data['Markers'][2][i, :]])
+
+
 
                 frc_data = {}
                 for pfnum in [1, 2]:

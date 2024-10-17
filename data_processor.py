@@ -102,6 +102,7 @@ class DataProcessor:
         if self.visualization_widget.model:
             logging.info("Calcul de la dynamique inverse...")
             # Récupération des informations de base
+
             n_frames = next(iter(mks.values())).shape[1]
             marker_names = tuple(n.to_string() for n in self.visualization_widget.model.technicalMarkerNames())
 
@@ -205,6 +206,7 @@ class DataProcessor:
             return tau, q, qdot, qddot
         else:
             print('ID was not performed please add a model')
+
             tau = []
             return tau
 

@@ -102,6 +102,10 @@ class VisualizationWidget(QWidget):
         # Now call the method to populate initial channel inputs
         self.update_channel_inputs()
 
+        self.stimulator_checkbox = QCheckBox('Activer stimulateur', self)
+        self.stimulator_checkbox.stateChanged.connect(self.on_stimulator_checkbox_toggled)
+        form_layout.addWidget(self.stimulator_checkbox)
+
         # Ajouter le bouton 'Actualiser stim' sous les paramètres de canaux
         self.ActuStim_button = QPushButton('Actualiser stim', self)
         self.ActuStim_button.clicked.connect(self.stim_actu_clicked)
@@ -237,7 +241,7 @@ class VisualizationWidget(QWidget):
 
     def send_stimulation(self):
         if self.stimulator_is_active:
-            self.stimulator.start_stimulation(upd_list_channels=[self.channel],  stimulation_duration=self.channel_inputs[0]['duree'], safety=True)
+            self.stimulator.start_stimulation(upd_list_channels=self.channels,  stimulation_duration=self.channel_inputs[0]['duree'], safety=True)
             print("Stimulation envoyée.")
         else :
             print("Stim desactivé")
