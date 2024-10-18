@@ -34,7 +34,7 @@ class DataReceiver(QObject):
         while True:
             tic = time.time()
             try:
-                if self.first_time:
+                if self.marker_names is None:
                     received_data = self.tcp_client.get_data_from_server(command=['Force', 'Markers', 'MarkersNames'])
                     # Stocker les noms des marqueurs et désactiver l'envoi futur des noms
                     if 'MarkersNames' in received_data:

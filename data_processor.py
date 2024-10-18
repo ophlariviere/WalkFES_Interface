@@ -150,9 +150,9 @@ class DataProcessor:
             sampling_factor = 20
 
             # Initialize arrays for storing external forces and moments
-            force_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
-            moment_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
-            cop_filtered = np.zeros((num_contacts, 3, sampling_factor * num_frames))
+            force_filtered = np.zeros((num_contacts, 3, len(forcedata['Force_1'][0])))
+            moment_filtered = np.zeros((num_contacts, 3, len(forcedata['Force_1'][0])))
+            cop_filtered = np.zeros((num_contacts, 3, len(forcedata['Force_1'][0])))
             platform_origin = np.array([[[0.79165588], [0.77004227], [0.00782072]],
                                [[0.7856461], [0.2547548], [0.00760771]]])
 
