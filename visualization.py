@@ -1,5 +1,6 @@
 import sys
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit, QCheckBox, QGroupBox, QComboBox, QHBoxLayout, QSizePolicy, QFileDialog, QApplication
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit,
+                             QCheckBox, QGroupBox, QComboBox, QHBoxLayout, QSizePolicy, QFileDialog, QApplication)
 from PyQt5.Qt import Qt
 import logging
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -211,7 +212,6 @@ class VisualizationWidget(QWidget):
             logging.info("Stimulator deactivated.")
             self.desactiver_stimulateur()
 
-
     def activer_stimulateur(self):
         try:
             self.channels = []  # Clear previous channels
@@ -241,9 +241,16 @@ class VisualizationWidget(QWidget):
 
     def send_stimulation(self):
         if self.stimulator_is_active:
-            self.stimulator.start_stimulation(upd_list_channels=self.channels,  stimulation_duration=self.channel_inputs[0]['duree'], safety=True)
+            self.stimulator.start_stimulation(upd_list_channels=self.channels,  stimulation_duration=1/100, safety=True)
             print("Stimulation envoyée.")
-        else :
+        else:
+            print("Stim desactivé")
+
+    def stop_stimulation(self):
+        if self.stimulator_is_active:
+            self.stimulator.end_stimulation()
+            print("Stimulation stop.")
+        else:
             print("Stim desactivé")
 
     def desactiver_stimulateur(self):
@@ -252,7 +259,6 @@ class VisualizationWidget(QWidget):
             self.stimulator.close_port()
             self.stimulator_is_active = False
             print("Fonction de désactivation du stimulateur appelée.")
-
 
     def stim_actu_clicked(self):
         try:
@@ -265,7 +271,8 @@ class VisualizationWidget(QWidget):
                 duree = int(inputs['duree'].text())
                 largeur = int(inputs['largeur'].text())
                 mode_text = inputs['mode'].currentText()
-                mode = Modes.SINGLE if mode_text == "SINGLE" else Modes.DOUBLET if mode_text == "DOUBLET" else Modes.TRIPLET
+                mode = Modes.SINGLE if mode_text == "SINGLE" else Modes.DOUBLET if mode_text == "DOUBLET" \
+                    else Modes.TRIPLET
 
                 # Update channel parameters
                 self.channels[i].set_amplitude(amplitude)
@@ -308,7 +315,7 @@ class VisualizationWidget(QWidget):
                 value = np.array(value)  # Ensure it's a NumPy array if it's not already
                 if value.ndim == 2:  # Check the number of dimensions
                     if 'Force' in key or 'Moment' in key:
-                        interpolated_vector = self.interpolate_vector(value[2, :]) #TODO change to select axis
+                        interpolated_vector = self.interpolate_vector(value[2, :])  # TODO change to select axis
                         self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
                     else:
                         interpolated_vector = self.interpolate_vector(value[1, :])

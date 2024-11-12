@@ -30,5 +30,6 @@ def main():
         executor.submit(data_receiver.start_receiving)
         sys.exit(app.exec_())
 
+
 if __name__ == "__main__":
     main()

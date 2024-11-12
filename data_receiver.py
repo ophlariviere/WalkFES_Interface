@@ -6,6 +6,7 @@ from PyQt5.QtCore import QObject
 import logging
 from data_processor import DataProcessor
 
+
 class DataReceiver(QObject):
     def __init__(self, server_ip, server_port, visualization_widget, read_frequency=100, threshold=30):
         super().__init__()
@@ -16,6 +17,8 @@ class DataReceiver(QObject):
         self.threshold = threshold
         self.datacycle = {}
         self.stimulator = []
+        self.sendStim = False
+        self.timeStim = 0
         self.current_frame = 0
         self.lock = threading.Lock()
         self.visualization_widget = visualization_widget
@@ -49,13 +52,11 @@ class DataReceiver(QObject):
                 if self.marker_names:
                     for i, name in enumerate(self.marker_names):
                         mks_data[name] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
-                                                received_data['Markers'][2][i, :]])
+                                                   received_data['Markers'][2][i, :]])
                 else:
                     for i in range(len(received_data['Markers'][0][:, 0])):
                         mks_data[i] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
                                                 received_data['Markers'][2][i, :]])
-
-
 
                 frc_data = {}
                 for pfnum in [1, 2]:
@@ -68,8 +69,6 @@ class DataReceiver(QObject):
                             received_data['Force'][start_idx + 3 * i + 2][:]
                         ])
 
-
-                received_data = {}
                 received_data = {"Force": frc_data, "Markers": mks_data}
 
                 # Utilisation de thread pour traiter les données en parallèle
@@ -99,10 +98,18 @@ class DataReceiver(QObject):
                 last_ap_force_mean = 0
 
             # Accédez à stimulator_is_active via self.visualization_widget
-            if ap_force_mean > 5 >= last_ap_force_mean:
+            if (ap_force_mean-last_ap_force_mean) < -5 and self.sendStim is False and ap_force_mean > 80:
                 if self.visualization_widget.stimulator_is_active:  # Vérifiez si le stimulateur est actif
-                    self.visualization_widget.send_stimulation()  # Appeler la méthode send_stimulation de l'instance VisualizationWidget
+                    self.visualization_widget.send_stimulation()
                     logging.info("Stimulation signal emitted")
+                    self.sendStim = True
+                    self.timeStim = time.time()
+
+            elif (ap_force_mean-last_ap_force_mean) > 5 and self.sendStim is True and time.time() - self.timeStim > 0.1:
+                if self.visualization_widget.stimulator_is_active:  # Vérifiez si le stimulateur est actif
+                    self.visualization_widget.stop_stimulation()
+                    logging.info("Stimulation Stop")
+                    self.sendStim = False
         except Exception as e:
             logging.error(f"Erreur lors de la stimulation : {e}")
 
