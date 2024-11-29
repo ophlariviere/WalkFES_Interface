@@ -1,4 +1,3 @@
-import threading
 import time
 import numpy as np
 from biosiglive import TcpClient
@@ -8,19 +7,26 @@ from data_processor import DataProcessor
 
 
 class DataReceiver(QObject):
-    def __init__(self, server_ip, server_port, visualization_widget, read_frequency=100, threshold=30):
+    def __init__(
+            self,
+            server_ip,
+            server_port,
+            visualization_widget,
+            read_frequency=100,
+            threshold=30,
+    ):
         super().__init__()
         self.visualization_widget = visualization_widget
         self.server_ip = server_ip
         self.server_port = server_port
-        self.tcp_client = TcpClient(self.server_ip, self.server_port, read_frequency=read_frequency)
+        self.tcp_client = TcpClient(
+            self.server_ip, self.server_port, read_frequency=read_frequency
+        )
         self.threshold = threshold
-        self.datacycle = {}
         self.stimulator = []
+        self.datacycle = {}
         self.sendStim = False
         self.timeStim = 0
-        self.current_frame = 0
-        self.lock = threading.Lock()
         self.visualization_widget = visualization_widget
         self.read_frequency = read_frequency
         self.processor = DataProcessor(self.visualization_widget)  # Passez l'objet visualization_widget
@@ -30,7 +36,6 @@ class DataReceiver(QObject):
                         "RShoulder": (9, 10, 11), "RElbow": (12, 13, 14), "RWrist": (15, 16, 17),
                         "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
         self.marker_names = None
-        self.first_time = False
 
     def start_receiving(self):
         logging.info("Début de la réception des données...")
@@ -38,14 +43,27 @@ class DataReceiver(QObject):
             tic = time.time()
             try:
                 if self.marker_names is None:
-                    received_data = self.tcp_client.get_data_from_server(command=['Force', 'Markers', 'MarkersNames'])
-                    # Stocker les noms des marqueurs et désactiver l'envoi futur des noms
-                    if 'MarkersNames' in received_data:
-                        self.marker_names = received_data['MarkersNames']
-                    self.first_time = False  # Après le premier envoi, ne plus demander les noms des marqueurs
+                    received_data = self.tcp_client.get_data_from_server(command=["Force", "Markers", "MarkersNames"])
+                    self.marker_names = received_data["MarkersNames"]
                 else:
-                    # Commande sans demander à nouveau les noms des marqueurs
-                    received_data = self.tcp_client.get_data_from_server(command=['Force', 'Markers'])
+                    received_data = self.tcp_client.get_data_from_server(command=["Force", "Markers"])
+                if "Force" not in received_data or not received_data["Force"]:
+                    logging.warning("Aucune donnée reçue depuis le serveur.")
+                    continue
+
+                # Organisation des données reçues pour PF1 et PF2
+                frc_data = {}
+                for pfnum in [1, 2]:
+                    start_idx = (pfnum - 1) * 9  # PF1: 0-8, PF2: 9-17
+                    for i, comp in enumerate(["Force", "Moment", "CoP"]):
+                        key = f"{comp}_{pfnum}"
+                        frc_data[key] = np.array(
+                            [
+                                received_data["Force"][start_idx + 3 * i][:],
+                                received_data["Force"][start_idx + 3 * i + 1][:],
+                                received_data["Force"][start_idx + 3 * i + 2][:],
+                            ]
+                        )
 
                 # Organisation des données reçues
                 mks_data = {}
@@ -58,28 +76,12 @@ class DataReceiver(QObject):
                         mks_data[i] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
                                                 received_data['Markers'][2][i, :]])
 
-                frc_data = {}
-                for pfnum in [1, 2]:
-                    start_idx = (pfnum - 1) * 9
-                    for i, comp in enumerate(['Force', 'Moment', 'CoP']):
-                        key = f"{comp}_{pfnum}"
-                        frc_data[key] = np.array([
-                            received_data['Force'][start_idx + 3 * i][:],
-                            received_data['Force'][start_idx + 3 * i + 1][:],
-                            received_data['Force'][start_idx + 3 * i + 2][:]
-                        ])
-
                 received_data = {"Force": frc_data, "Markers": mks_data}
 
-                # Utilisation de thread pour traiter les données en parallèle
-                thread_stimulation = threading.Thread(target=self.check_stimulation, args=(received_data,))
-                thread_datagestion = threading.Thread(target=self.process_data, args=(received_data,))
+                if self.visualization_widget.stimulator is not None:
+                    self.check_stimulation(received_data)
 
-                thread_stimulation.start()
-                thread_datagestion.start()
-
-                thread_stimulation.join()
-                thread_datagestion.join()
+                self.process_data(received_data)
 
                 loop_time = time.time() - tic
                 real_time_to_sleep = max(0, 1 / self.read_frequency - loop_time)
@@ -90,40 +92,73 @@ class DataReceiver(QObject):
 
     def check_stimulation(self, received_data):
         try:
-            ap_force_mean = np.mean(received_data['Force']['Force_1'][0, :])
-            long = len(received_data['Force']['Force_1'][0, :])
-            if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][0, :]) > 0:
-                last_ap_force_mean = np.mean(self.datacycle['Force']['Force_1'][0, -long:])
-            else:
-                last_ap_force_mean = 0
+            for PFnum in range(1, 3):
+                ap_force_mean, last_ap_force_mean = self._calculate_force_means(received_data, PFnum)
 
-            # Accédez à stimulator_is_active via self.visualization_widget
-            if (ap_force_mean-last_ap_force_mean) < -5 and self.sendStim is False and ap_force_mean > 80:
-                if self.visualization_widget.stimulator_is_active:  # Vérifiez si le stimulateur est actif
-                    self.visualization_widget.send_stimulation()
-                    logging.info("Stimulation signal emitted")
-                    self.sendStim = True
-                    self.timeStim = time.time()
+                if self._should_start_stimulation(ap_force_mean, last_ap_force_mean):
+                    self._start_stimulation(PFnum)
 
-            elif (ap_force_mean-last_ap_force_mean) > 5 and self.sendStim is True and time.time() - self.timeStim > 0.1:
-                if self.visualization_widget.stimulator_is_active:  # Vérifiez si le stimulateur est actif
-                    self.visualization_widget.stop_stimulation()
-                    logging.info("Stimulation Stop")
-                    self.sendStim = False
+                elif self._should_stop_stimulation(ap_force_mean, last_ap_force_mean):
+                    self._stop_stimulation()
         except Exception as e:
             logging.error(f"Erreur lors de la stimulation : {e}")
 
+    def _calculate_force_means(self, received_data, PFnum):
+        """Calcule les moyennes des forces actuelles et précédentes pour PFnum."""
+        ap_force_mean = np.mean(received_data["Force"]["Force_" + str(PFnum)][0, :])
+        long = len(received_data["Force"]["Force_" + str(PFnum)][0, :])
+        last_ap_force_mean = (
+            np.mean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -long:])
+            if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][0, :]) > 0
+            else 0
+        )
+        return ap_force_mean, last_ap_force_mean
+
+    def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean):
+        """Vérifie si la stimulation doit commencer."""
+        return (
+                (ap_force_mean - last_ap_force_mean) > 0
+                and self.sendStim is False
+                and ap_force_mean < -20
+                and self.visualization_widget.stimulator is not None
+        )
+
+    def _start_stimulation(self, PFnum):
+        """Démarre la stimulation pour le canal spécifié."""
+        channel_to_stim = [1, 2, 3, 4] if PFnum == 1 else [5, 6, 7, 8]
+        self.visualization_widget.start_stimulation(channel_to_stim)
+        self.sendStim = True
+        self.timeStim = time.time()
+
+    def _should_stop_stimulation(self, ap_force_mean, last_ap_force_mean):
+        """Vérifie si la stimulation doit s'arrêter."""
+        time_since_stim = time.time() - self.timeStim
+        return (
+                ((
+                         ap_force_mean - last_ap_force_mean) < 0 and (self.sendStim is True) and ap_force_mean > 10 and time_since_stim > 0.2)
+                or (time_since_stim > 0.5 and self.sendStim is True)
+        )
+
+    def _stop_stimulation(self):
+        """Arrête la stimulation."""
+        self.visualization_widget.pause_stimulation()
+        self.sendStim = False
+
     def process_data(self, received_data):
         self.check_cycle(received_data)
-        with self.lock:
-            self.recursive_concat(self.datacycle, received_data)
+        self.recursive_concat(self.datacycle, received_data)
 
     def check_cycle(self, received_data):
         try:
-            vertical_force_mean = np.mean(received_data['Force']['Force_1'][2, :])
-            long = len(received_data['Force']['Force_1'][2, :])
-            if 'Force' in self.datacycle and len(self.datacycle['Force']['Force_1'][2, :]) > 0:
-                last_vertical_force_mean = np.mean(self.datacycle['Force']['Force_1'][2, -long:])
+            vertical_force_mean = np.mean(received_data["Force"]["Force_1"][2, :])
+            long = len(received_data["Force"]["Force_1"][2, :])
+            if (
+                    "Force" in self.datacycle
+                    and len(self.datacycle["Force"]["Force_1"][2, :]) > 0
+            ):
+                last_vertical_force_mean = np.mean(
+                    self.datacycle["Force"]["Force_1"][2, -long:]
+                )
             else:
                 last_vertical_force_mean = 0
 
@@ -131,7 +166,9 @@ class DataReceiver(QObject):
                 cycle_to_process = self.datacycle
                 self.datacycle = {}
                 self.current_frame = 0
-                logging.info("Les données ont été réinitialisées pour un nouveau cycle.")
+                logging.info(
+                    "Les données ont été réinitialisées pour un nouveau cycle."
+                )
                 self.processor.start_new_cycle(cycle_to_process)
 
         except Exception as e:
@@ -145,6 +182,12 @@ class DataReceiver(QObject):
                 self.recursive_concat(datacycle[key], value)
             else:
                 try:
-                    datacycle[key] = np.hstack((datacycle[key], value)) if key in datacycle else value
+                    datacycle[key] = (
+                        np.hstack((datacycle[key], value))
+                        if key in datacycle
+                        else value
+                    )
                 except Exception as e:
-                    logging.error(f"Erreur lors de la concaténation des données pour la clé '{key}': {e}")
+                    logging.error(
+                        f"Erreur lors de la concaténation des données pour la clé '{key}': {e}"
+                    )

@@ -5,30 +5,43 @@ from visualization import VisualizationWidget
 from data_receiver import DataReceiver
 import logging
 
+# Utilisez QThread pour exécuter DataReceiver en parallèle
+from PyQt5.QtCore import QThread
+
 
 # Configure le logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 def main():
     # Définition des paramètres du serveur
-    server_ip = "192.168.0.1"  # Utiliser l'adresse IP du serveur
-    server_port = 7  # Port à utiliser
+    server_ip = "127.0.0.1" # 192.168.0.1"  # "127.0.0.1" # Adresse IP du serveur
+    server_port = 50000  #   #50000 Port à utiliser
 
-    # Créer une application PyQt5
+    # Créez une application PyQt5
     app = QApplication(sys.argv)
 
-    # Créez une instance du widget de visualisation et affichez-la
+    # Créez une instance du widget de visualisation
     visualization_widget = VisualizationWidget()
     visualization_widget.show()
 
-    # Créez une instance de DataReceiver et liez le widget de visualisation à celui-ci
+    # Créez une instance de DataReceiver
     data_receiver = DataReceiver(server_ip, server_port, visualization_widget)
 
-    # Utilisez ThreadPoolExecutor pour exécuter les tâches en parallèle
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        executor.submit(data_receiver.start_receiving)
-        sys.exit(app.exec_())
+    class DataThread(QThread):
+        def __init__(self, receiver):
+            super().__init__()
+            self.receiver = receiver
+
+        def run(self):
+            self.receiver.start_receiving()
+
+    data_thread = DataThread(data_receiver)
+    data_thread.start()
+
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":

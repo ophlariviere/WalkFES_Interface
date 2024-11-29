@@ -22,7 +22,6 @@ class DataProcessor:
         logging.info("Début d'un nouveau cycle détecté.")
         try:
             futures = []
-
             # Check if self.model exists before adding the kinematic dynamic calculation
             if self.visualization_widget.model is not None:
                 futures.append(
