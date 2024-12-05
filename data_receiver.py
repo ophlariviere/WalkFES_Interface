@@ -41,63 +41,61 @@ class DataReceiver(QObject):
         logging.info("Début de la réception des données...")
         while True:
             tic = time.time()
-            try:
-                if self.marker_names is None:
-                    received_data = self.tcp_client.get_data_from_server(command=["Force", "Markers", "MarkersNames"])
-                    self.marker_names = received_data["MarkersNames"]
-                else:
+            for _ in range(3):  # Tentatives multiples
+                try:
                     received_data = self.tcp_client.get_data_from_server(command=["Force", "Markers"])
-                if "Force" not in received_data or not received_data["Force"]:
-                    logging.warning("Aucune donnée reçue depuis le serveur.")
-                    continue
+                    break  # Si réussi, quittez la boucle
+                except Exception as e:
+                    logging.warning(f"Tentative échouée : {e}")
+                    time.sleep(5)  # Attente avant la prochaine tentative
+            else:
+                logging.error("Impossible de se connecter après plusieurs tentatives.")
+                continue
 
-                # Organisation des données reçues pour PF1 et PF2
-                frc_data = {}
-                for pfnum in [1, 2]:
-                    start_idx = (pfnum - 1) * 9  # PF1: 0-8, PF2: 9-17
-                    for i, comp in enumerate(["Force", "Moment", "CoP"]):
-                        key = f"{comp}_{pfnum}"
-                        frc_data[key] = np.array(
-                            [
-                                received_data["Force"][start_idx + 3 * i][:],
-                                received_data["Force"][start_idx + 3 * i + 1][:],
-                                received_data["Force"][start_idx + 3 * i + 2][:],
-                            ]
-                        )
+            if "Force" not in received_data or not received_data["Force"]:
+                logging.warning("Aucune donnée reçue depuis le serveur.")
+                continue
 
-                # Organisation des données reçues
-                mks_data = {}
-                if self.marker_names:
-                    for i, name in enumerate(self.marker_names):
-                        mks_data[name] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
-                                                   received_data['Markers'][2][i, :]])
-                else:
-                    for i in range(len(received_data['Markers'][0][:, 0])):
-                        mks_data[i] = np.array([received_data['Markers'][0][i, :], received_data['Markers'][1][i, :],
-                                                received_data['Markers'][2][i, :]])
+            # Organisation des données reçues pour PF1 et PF2
+            frc_data = {}
+            for pfnum in [1, 2]:
+                start_idx = (pfnum - 1) * 9  # PF1: 0-8, PF2: 9-17
+                for i, comp in enumerate(["Force", "Moment", "CoP"]):
+                    key = f"{comp}_{pfnum}"
+                    frc_data[key] = np.array(
+                        [
+                            received_data["Force"][start_idx + 3 * i][:],
+                            received_data["Force"][start_idx + 3 * i + 1][:],
+                            received_data["Force"][start_idx + 3 * i + 2][:],
+                        ]
+                    )
 
-                received_data = {"Force": frc_data, "Markers": mks_data}
+            # Organisation des données reçues
+            mks_data = {}
 
-                if self.visualization_widget.stimulator is not None:
-                    self.check_stimulation(received_data)
+            for i in range(len(received_data['Markers'][0][:, 0])):
+                name=received_data['Markers'][1][0]
+                mks_data[name] = np.array([received_data['Markers'][0][0,i, :], received_data['Markers'][0][1,i, :],
+                                        received_data['Markers'][0][2,i, :]])
 
-                self.process_data(received_data)
+            mks_data = {}
+            received_data = {"Force": frc_data, "Markers": mks_data}
 
-                loop_time = time.time() - tic
-                real_time_to_sleep = max(0, 1 / self.read_frequency - loop_time)
-                time.sleep(real_time_to_sleep)
+            if self.visualization_widget.stimulator is not None:
+                self.check_stimulation(received_data)
 
-            except Exception as e:
-                logging.error(f"Erreur lors de la réception des données : {e}")
+            self.process_data(received_data)
+
+            loop_time = time.time() - tic
+            real_time_to_sleep = max(0, 1 / self.read_frequency - loop_time)
+            time.sleep(real_time_to_sleep)
 
     def check_stimulation(self, received_data):
         try:
             for PFnum in range(1, 3):
                 ap_force_mean, last_ap_force_mean = self._calculate_force_means(received_data, PFnum)
-
                 if self._should_start_stimulation(ap_force_mean, last_ap_force_mean):
                     self._start_stimulation(PFnum)
-
                 elif self._should_stop_stimulation(ap_force_mean, last_ap_force_mean):
                     self._stop_stimulation()
         except Exception as e:
@@ -106,12 +104,14 @@ class DataReceiver(QObject):
     def _calculate_force_means(self, received_data, PFnum):
         """Calcule les moyennes des forces actuelles et précédentes pour PFnum."""
         ap_force_mean = np.mean(received_data["Force"]["Force_" + str(PFnum)][0, :])
+        ap_force_mean = -ap_force_mean
         long = len(received_data["Force"]["Force_" + str(PFnum)][0, :])
         last_ap_force_mean = (
             np.mean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -long:])
             if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][0, :]) > 0
             else 0
         )
+        last_ap_force_mean=-last_ap_force_mean
         return ap_force_mean, last_ap_force_mean
 
     def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean):

@@ -39,6 +39,7 @@ class VisualizationWidget(QWidget):
         self.model = None
         self.stimulator = None
         self.stimconfig = {}  # Initialisation correcte ici
+        self.HadAnNewStimConfig = False
         self.init_ui()
 
     def init_ui(self):
@@ -79,6 +80,7 @@ class VisualizationWidget(QWidget):
         ]
         return {key: {} for key in keys}
 
+    """Model part"""
     def create_model_group(self):
         """Créer un groupbox pour télécharger le modèle."""
         groupbox = QGroupBox("Téléchargement du modèle")
@@ -93,6 +95,7 @@ class VisualizationWidget(QWidget):
         groupbox.setLayout(layout)
         return groupbox
 
+    """Save part"""
     def create_save_group(self):
         """Créer un groupbox pour la gestion de l'enregistrement des données."""
         groupbox = QGroupBox("Gestion enregistrement des données")
@@ -108,6 +111,7 @@ class VisualizationWidget(QWidget):
         groupbox.setLayout(layout)
         return groupbox
 
+    """Visu Stim"""
     def create_channel_config_group(self):
         """Créer un groupbox pour configurer les canaux."""
         groupbox = QGroupBox("Configurer les canaux")
@@ -138,7 +142,7 @@ class VisualizationWidget(QWidget):
         self.activate_button = QPushButton("Activer Stimulateur")
         self.activate_button.clicked.connect(self.activate_stimulateur)
         self.update_button = QPushButton("Actualiser Paramètre Stim")
-        self.update_button.clicked.connect(self.update_stimulation)
+        self.update_button.clicked.connect(self.new_stim_config)
         self.start_button = QPushButton("Démarrer Stimulation")
         self.start_button.clicked.connect(self.start_stimulation)
         self.stop_button = QPushButton("Arrêter Stimuleur")
@@ -149,6 +153,7 @@ class VisualizationWidget(QWidget):
         layout.addWidget(self.stop_button)
         return layout
 
+    """Plot part"""
     def create_analysis_group(self):
         """Créer un groupbox pour la sélection des analyses."""
         groupbox = QGroupBox("Sélections d'Analyse")
@@ -177,6 +182,9 @@ class VisualizationWidget(QWidget):
     def save_path(self):
         self.path_to_saveData = self.nom_input.text()
         print(f"Chemin d'enregistrement défini sur : {self.path_to_saveData}")
+
+    def new_stim_config(self):
+        self.HadAnNewStimConfig=True
 
     def update_channel_inputs(self):
         """Met à jour les entrées des canaux sélectionnés sous les cases à cocher."""
@@ -240,6 +248,7 @@ class VisualizationWidget(QWidget):
                 # Supprimer le layout lui-même
                 self.channel_config_layout.removeItem(layout)
 
+
     def start_stimulation(self, channel_to_send):
         try:
             if self.stimulator is None:
@@ -248,35 +257,40 @@ class VisualizationWidget(QWidget):
                 )
                 return
 
-            self.channels = []
-            for channel, inputs in self.channel_inputs.items():
-                if channel in channel_to_send:
-                    channel_obj = Channel(
-                        no_channel=channel,
-                        name=self.stimconfig[channel]['name'],
-                        amplitude=self.stimconfig[channel]['amplitude'],
-                        pulse_width=self.stimconfig[channel]['pulse_width'],
-                        frequency=self.stimconfig[channel]['frequency'],
-                        mode=self.stimconfig[channel]['mode'],
-                        device_type=Device.Rehastimp24,
-                    )
-                else:
-                    channel_obj = Channel(
-                        no_channel=channel,
-                        name=self.stimconfig[channel].name,
-                        amplitude=0,
-                        pulse_width=self.stimconfig[channel].pulse_width,
-                        frequency=self.stimconfig[channel].frequency,
-                        mode=self.stimconfig[channel].mode,
-                        device_type=Device.Rehastimp24,
-                    )
-                self.channels.append(channel_obj)
+            if self.HadAnNewStimConfig is True:
+                self.update_stimulation()
+                self.HadAnNewStimConfig = False
 
-            self.stimulator.init_stimulation(list_channels=self.channels)
-            self.stimulator.start_stimulation(
-                upd_list_channels=self.channels, safety=True
-            )
-            logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
+            if self.stimconfig:
+                self.channels = []
+                for channel, inputs in self.stimconfig.items():
+                    if channel in channel_to_send:
+                        channel_obj = Channel(
+                            no_channel=channel,
+                            name=self.stimconfig[channel]['name'],
+                            amplitude=self.stimconfig[channel]['amplitude'],
+                            pulse_width=self.stimconfig[channel]['pulse_width'],
+                            frequency=self.stimconfig[channel]['frequency'],
+                            mode=self.stimconfig[channel]['mode'],
+                            device_type=Device.Rehastimp24,
+                        )
+                    else:
+                        channel_obj = Channel(
+                            no_channel=channel,
+                            name=self.stimconfig[channel]['name'],
+                            amplitude=self.stimconfig[channel]['amplitude'],
+                            pulse_width=self.stimconfig[channel]['pulse_width'],
+                            frequency=self.stimconfig[channel]['frequency'],
+                            mode=self.stimconfig[channel]['mode'],
+                            device_type=Device.Rehastimp24,
+                        )
+                    self.channels.append(channel_obj)
+
+                self.stimulator.init_stimulation(list_channels=self.channels)
+                self.stimulator.start_stimulation(
+                    upd_list_channels=self.channels, safety=True
+                )
+                logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
 
         except Exception as e:
             logging.error(f"Erreur lors du démarrage de la stimulation : {e}")
@@ -358,10 +372,10 @@ class VisualizationWidget(QWidget):
                 value = np.array(value)  # Ensure it's a NumPy array if it's not already
                 if value.ndim == 2:  # Check the number of dimensions
                     if 'Force' in key or 'Moment' in key:
-                        interpolated_vector = self.interpolate_vector(value[2, :])  # TODO change to select axis
+                        interpolated_vector = self.interpolate_vector(value[0, :])  # TODO change to select axis
                         self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
                     else:
-                        interpolated_vector = self.interpolate_vector(value[1, :])
+                        interpolated_vector = self.interpolate_vector(value[0, :])
                         if 'Tau' in key:
                             self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector / 58)
                         else:

@@ -26,11 +26,11 @@ class DataProcessor:
             if self.visualization_widget.model is not None:
                 futures.append(
                     self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Markers']))
-
+            """
             # Always add the gait parameters calculation
             futures.append(
                 self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers']))
-
+            """
             results = []
             for future in futures:
                 try:
@@ -69,8 +69,8 @@ class DataProcessor:
 
             else:
                 # If self.model does not exist, handle only the gait parameters
-                gait_parameters = results[0]
-                cycledata['gait_parameter'] = gait_parameters
+                # gait_parameters = results[0]
+                # cycledata['gait_parameter'] = gait_parameters
                 logging.info("Kinematic dynamic calculation skipped as self.model is not defined.")
 
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
@@ -383,10 +383,11 @@ class DataProcessor:
             stimulation_config = {}
 
             # Iterate over all channels stored in visualization_widget.channel_inputs
-            for i, inputs in enumerate(self.visualization_widget.channel_inputs):
+            for i, inputs in enumerate(self.visualization_widget.stimconfigs):
                 channel_number = i + 1  # Channel numbers are 1-based
 
                 # Access each input field for the current channel
+                name = inputs['name'].text()
                 amplitude = inputs['amplitude'].text()
                 frequence = inputs['frequence'].text()
                 duree = inputs['duree'].text()
@@ -394,6 +395,7 @@ class DataProcessor:
                 mode = inputs['mode'].currentText()
 
                 # Store each parameter in the dictionary with the appropriate key
+                stimulation_config[f"channel{channel_number}_name"] = name
                 stimulation_config[f"channel{channel_number}_Amplitude"] = amplitude
                 stimulation_config[f"channel{channel_number}_Fréquence"] = frequence
                 stimulation_config[f"channel{channel_number}_Durée"] = duree
