@@ -184,7 +184,7 @@ class VisualizationWidget(QWidget):
         print(f"Chemin d'enregistrement défini sur : {self.path_to_saveData}")
 
     def new_stim_config(self):
-        self.HadAnNewStimConfig=True
+        self.HadAnNewStimConfig = True
 
     def update_channel_inputs(self):
         """Met à jour les entrées des canaux sélectionnés sous les cases à cocher."""
@@ -278,7 +278,7 @@ class VisualizationWidget(QWidget):
                         channel_obj = Channel(
                             no_channel=channel,
                             name=self.stimconfig[channel]['name'],
-                            amplitude=self.stimconfig[channel]['amplitude'],
+                            amplitude=0,
                             pulse_width=self.stimconfig[channel]['pulse_width'],
                             frequency=self.stimconfig[channel]['frequency'],
                             mode=self.stimconfig[channel]['mode'],
@@ -324,7 +324,7 @@ class VisualizationWidget(QWidget):
     def update_stimulation(self):
         """Met à jour la stimulation."""
         if self.stimulator is not None:
-            for channel, inputs in self.channel_inputs.items():
+            for channel, inputs in self.stimconfig.items():
                 # Vérifiez si le canal existe dans stimconfig, sinon, initialisez-le
                 if channel not in self.stimconfig:
                     self.stimconfig[channel] = {
