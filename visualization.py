@@ -20,6 +20,7 @@ from scipy.interpolate import interp1d
 import logging
 import sys
 import biorbd
+import pyScienceMode
 from pyScienceMode import Device, Modes, Channel
 from pyScienceMode import RehastimP24 as St
 
@@ -37,6 +38,7 @@ class VisualizationWidget(QWidget):
         self.DataToPlot = self.initialize_data_to_plot()
         self.stimConfigValue = 0
         self.model = None
+        self.dolookneedsendstim=False
         self.stimulator = None
         self.stimconfig = {}  # Initialisation correcte ici
         self.HadAnNewStimConfig = False
@@ -138,15 +140,18 @@ class VisualizationWidget(QWidget):
     def create_stimulation_controls(self):
         """Créer les boutons pour contrôler la stimulation."""
         layout = QHBoxLayout()
-
         self.activate_button = QPushButton("Activer Stimulateur")
         self.activate_button.clicked.connect(self.activate_stimulateur)
         self.update_button = QPushButton("Actualiser Paramètre Stim")
-        self.update_button.clicked.connect(self.new_stim_config)
+        self.update_button.clicked.connect(self.update_stimulation)
         self.start_button = QPushButton("Démarrer Stimulation")
         self.start_button.clicked.connect(self.start_stimulation)
         self.stop_button = QPushButton("Arrêter Stimuleur")
         self.stop_button.clicked.connect(self.stop_stimulation)
+        self.checkpauseStim = QCheckBox("Stop tying send stim", self)
+        self.checkpauseStim.setChecked(True)
+        self.checkpauseStim.stateChanged.connect(self.pausefonctiontosendstim)
+        layout.addWidget(self.checkpauseStim)
         layout.addWidget(self.activate_button)
         layout.addWidget(self.start_button)
         layout.addWidget(self.update_button)
@@ -248,7 +253,6 @@ class VisualizationWidget(QWidget):
                 # Supprimer le layout lui-même
                 self.channel_config_layout.removeItem(layout)
 
-
     def start_stimulation(self, channel_to_send):
         try:
             if self.stimulator is None:
@@ -257,59 +261,51 @@ class VisualizationWidget(QWidget):
                 )
                 return
 
-            if self.HadAnNewStimConfig is True:
-                self.update_stimulation()
-                self.HadAnNewStimConfig = False
-
-            if self.stimconfig:
-                self.channels = []
-                for channel, inputs in self.stimconfig.items():
-                    if channel in channel_to_send:
-                        channel_obj = Channel(
-                            no_channel=channel,
-                            name=self.stimconfig[channel]['name'],
-                            amplitude=self.stimconfig[channel]['amplitude'],
-                            pulse_width=self.stimconfig[channel]['pulse_width'],
-                            frequency=self.stimconfig[channel]['frequency'],
-                            mode=self.stimconfig[channel]['mode'],
-                            device_type=Device.Rehastimp24,
-                        )
-                    else:
-                        channel_obj = Channel(
-                            no_channel=channel,
-                            name=self.stimconfig[channel]['name'],
-                            amplitude=0,
-                            pulse_width=self.stimconfig[channel]['pulse_width'],
-                            frequency=self.stimconfig[channel]['frequency'],
-                            mode=self.stimconfig[channel]['mode'],
-                            device_type=Device.Rehastimp24,
-                        )
-                    self.channels.append(channel_obj)
-
+            self.channels = []
+            for channel, inputs in self.channel_inputs.items():
+                if channel in channel_to_send:
+                    channel_obj = Channel(
+                        no_channel=channel,
+                        name=inputs["name_input"].text(),
+                        amplitude=inputs["amplitude_input"].value(),
+                        pulse_width=inputs["pulse_width_input"].value(),
+                        frequency=inputs["frequency_input"].value(),
+                        mode=Modes.SINGLE,
+                        device_type=Device.Rehastimp24,
+                    )
+                else:
+                    channel_obj = Channel(
+                        no_channel=channel,
+                        name=inputs["name_input"].text(),
+                        amplitude=0,
+                        pulse_width=inputs["pulse_width_input"].value(),
+                        frequency=inputs["frequency_input"].value(),
+                        mode=Modes.SINGLE,
+                        device_type=Device.Rehastimp24,
+                    )
+                self.channels.append(channel_obj)
+            if self.channels:
                 self.stimulator.init_stimulation(list_channels=self.channels)
                 self.stimulator.start_stimulation(
                     upd_list_channels=self.channels, safety=True
                 )
-                logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
-
+            logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
         except Exception as e:
             logging.error(f"Erreur lors du démarrage de la stimulation : {e}")
 
     def stop_stimulation(self):
         try:
             if self.stimulator:
+                # self.pause_stimulation()
                 self.stimulator.end_stimulation()
                 self.stimulator.close_port()
+                self.stimulator_is_active = False
                 self.stimulator = None
                 logging.info("Stimulateur arrêtée.")
             else:
                 logging.warning("Aucun stimulateur actif à arrêter.")
         except Exception as e:
             logging.error(f"Erreur lors de l'arrêt de la stimulation : {e}")
-
-    def activate_stimulateur(self):
-        if self.stimulator is None:
-            self.stimulator = St(port="COM3", show_log="Status")
 
     def pause_stimulation(self):
         try:
@@ -321,10 +317,39 @@ class VisualizationWidget(QWidget):
         except Exception as e:
             logging.error(f"Erreur lors de l'arrêt de la stimulation : {e}")
 
+    def pausefonctiontosendstim(self):
+        # Met à jour self.dolookstimsend selon l'état de la checkbox
+        self.dolookneedsendstim = not self.checkpauseStim.isChecked()
+
+    def activate_stimulateur(self):
+        if self.stimulator is None:
+            self.stimulator = St(port="COM3", show_log="Status")
+            self.stimulator_is_active = True
+
+        self.channels = []
+        for channel, inputs in self.channel_inputs.items():
+            channel_obj = Channel(
+                no_channel=channel,
+                name=inputs["name_input"].text(),
+                amplitude=inputs["amplitude_input"].value(),
+                pulse_width=inputs["pulse_width_input"].value(),
+                frequency=inputs["frequency_input"].value(),
+                mode=Modes.SINGLE, #inputs["mode_input"].currentText(),
+                device_type=Device.Rehastimp24,
+            )
+
+            self.channels.append(channel_obj)
+        if self.channels:
+            self.stimulator.init_stimulation(list_channels=self.channels)
+
+
+
     def update_stimulation(self):
         """Met à jour la stimulation."""
+        self.stimConfigValue += 1
+
         if self.stimulator is not None:
-            for channel, inputs in self.stimconfig.items():
+            for channel, inputs in self.channel_inputs.items():
                 # Vérifiez si le canal existe dans stimconfig, sinon, initialisez-le
                 if channel not in self.stimconfig:
                     self.stimconfig[channel] = {
@@ -344,7 +369,9 @@ class VisualizationWidget(QWidget):
                 self.stimconfig[channel]["mode"] = inputs["mode_input"].currentText()
                 self.stimconfig[channel]["device_type"] = Device.Rehastimp24
 
-            self.stimConfigValue += 1
+
+
+
 
     def update_data_and_graphs(self, new_data):
         """

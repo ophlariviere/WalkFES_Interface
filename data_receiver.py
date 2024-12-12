@@ -72,16 +72,16 @@ class DataReceiver(QObject):
 
             # Organisation des données reçues
             mks_data = {}
-
+            """
             for i in range(len(received_data['Markers'][0][:, 0])):
                 name=received_data['Markers'][1][0]
                 mks_data[name] = np.array([received_data['Markers'][0][0,i, :], received_data['Markers'][0][1,i, :],
                                         received_data['Markers'][0][2,i, :]])
+            """
 
-            mks_data = {}
             received_data = {"Force": frc_data, "Markers": mks_data}
 
-            if self.visualization_widget.stimulator is not None:
+            if (self.visualization_widget.stimulator is not None) and (self.visualization_widget.dolookneedsendstim is True):
                 self.check_stimulation(received_data)
 
             self.process_data(received_data)
@@ -103,15 +103,22 @@ class DataReceiver(QObject):
 
     def _calculate_force_means(self, received_data, PFnum):
         """Calcule les moyennes des forces actuelles et précédentes pour PFnum."""
-        ap_force_mean = np.mean(received_data["Force"]["Force_" + str(PFnum)][0, :])
+        ap_force_mean = np.nanmean(received_data["Force"]["Force_" + str(PFnum)][0, :])
         ap_force_mean = -ap_force_mean
         long = len(received_data["Force"]["Force_" + str(PFnum)][0, :])
         last_ap_force_mean = (
-            np.mean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -long:])
+            np.nanmean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -long:])
             if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][0, :]) > 0
             else 0
         )
-        last_ap_force_mean=-last_ap_force_mean
+        if np.isnan(last_ap_force_mean):
+            last_ap_force_mean = (
+                np.nanmean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -2*long:-long-1])
+                if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][0, :]) > 0
+                else 0
+            )
+
+        last_ap_force_mean = -last_ap_force_mean
         return ap_force_mean, last_ap_force_mean
 
     def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean):
@@ -150,13 +157,13 @@ class DataReceiver(QObject):
 
     def check_cycle(self, received_data):
         try:
-            vertical_force_mean = np.mean(received_data["Force"]["Force_1"][2, :])
+            vertical_force_mean = np.nanmean(received_data["Force"]["Force_1"][2, :])
             long = len(received_data["Force"]["Force_1"][2, :])
             if (
                     "Force" in self.datacycle
                     and len(self.datacycle["Force"]["Force_1"][2, :]) > 0
             ):
-                last_vertical_force_mean = np.mean(
+                last_vertical_force_mean = np.nanmean(
                     self.datacycle["Force"]["Force_1"][2, -long:]
                 )
             else:
