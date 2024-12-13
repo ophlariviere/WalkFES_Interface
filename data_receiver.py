@@ -124,9 +124,9 @@ class DataReceiver(QObject):
     def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean):
         """Vérifie si la stimulation doit commencer."""
         return (
-                (ap_force_mean - last_ap_force_mean) > 0
-                and self.sendStim is False
-                and ap_force_mean < -50
+                #and (ap_force_mean - last_ap_force_mean) > 0
+                self.sendStim is False
+                and ap_force_mean > 10
                 and self.visualization_widget.stimulator is not None
         )
 
@@ -141,9 +141,9 @@ class DataReceiver(QObject):
         """Vérifie si la stimulation doit s'arrêter."""
         time_since_stim = time.time() - self.timeStim
         return (
-                ((ap_force_mean - last_ap_force_mean) < 0
-                 and (self.sendStim is True)
-                 and ap_force_mean > 30
+                #and  ((ap_force_mean - last_ap_force_mean) < 0
+                ((self.sendStim is True)
+                 and ap_force_mean < 10
                  and time_since_stim > 0.1)
                 or (time_since_stim > 0.4 and self.sendStim is True)
         )
