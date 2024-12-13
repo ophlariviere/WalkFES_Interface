@@ -26,11 +26,11 @@ class DataProcessor:
             if self.visualization_widget.model is not None:
                 futures.append(
                     self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Markers']))
-            """
+
             # Always add the gait parameters calculation
             futures.append(
                 self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers']))
-            """
+
             results = []
             for future in futures:
                 try:
@@ -69,8 +69,8 @@ class DataProcessor:
 
             else:
                 # If self.model does not exist, handle only the gait parameters
-                # gait_parameters = results[0]
-                # cycledata['gait_parameter'] = gait_parameters
+                gait_parameters = results[0]
+                cycledata['gait_parameter'] = gait_parameters
                 logging.info("Kinematic dynamic calculation skipped as self.model is not defined.")
 
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)

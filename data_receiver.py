@@ -72,12 +72,12 @@ class DataReceiver(QObject):
 
             # Organisation des données reçues
             mks_data = {}
-            """
-            for i in range(len(received_data['Markers'][0][:, 0])):
-                name=received_data['Markers'][1][0]
-                mks_data[name] = np.array([received_data['Markers'][0][0,i, :], received_data['Markers'][0][1,i, :],
-                                        received_data['Markers'][0][2,i, :]])
-            """
+
+            for i in range(len(received_data['Markers'][0][0, :, 0])):
+                name=received_data['Markers'][1][i]
+                mks_data[name] = np.array([received_data['Markers'][0][0, i, :], received_data['Markers'][0][1, i, :],
+                                        received_data['Markers'][0][2, i, :]])
+
 
             received_data = {"Force": frc_data, "Markers": mks_data}
 
@@ -126,7 +126,7 @@ class DataReceiver(QObject):
         return (
                 (ap_force_mean - last_ap_force_mean) > 0
                 and self.sendStim is False
-                and ap_force_mean < -20
+                and ap_force_mean < -50
                 and self.visualization_widget.stimulator is not None
         )
 
@@ -141,9 +141,11 @@ class DataReceiver(QObject):
         """Vérifie si la stimulation doit s'arrêter."""
         time_since_stim = time.time() - self.timeStim
         return (
-                ((
-                         ap_force_mean - last_ap_force_mean) < 0 and (self.sendStim is True) and ap_force_mean > 10 and time_since_stim > 0.2)
-                or (time_since_stim > 0.5 and self.sendStim is True)
+                ((ap_force_mean - last_ap_force_mean) < 0
+                 and (self.sendStim is True)
+                 and ap_force_mean > 30
+                 and time_since_stim > 0.1)
+                or (time_since_stim > 0.4 and self.sendStim is True)
         )
 
     def _stop_stimulation(self):

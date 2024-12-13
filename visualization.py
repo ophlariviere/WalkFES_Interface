@@ -402,7 +402,7 @@ class VisualizationWidget(QWidget):
                         interpolated_vector = self.interpolate_vector(value[0, :])  # TODO change to select axis
                         self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
                     else:
-                        interpolated_vector = self.interpolate_vector(value[0, :])
+                        interpolated_vector = self.interpolate_vector(value[1, :])
                         if 'Tau' in key:
                             self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector / 58)
                         else:
