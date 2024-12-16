@@ -23,7 +23,7 @@ def main():
     # Créez une application PyQt5
     app = QApplication(sys.argv)
 
-    # Créez une instance du widget de visualisation
+    # Créez une instance du widget de visualisation ......
     visualization_widget = VisualizationWidget()
     visualization_widget.show()
 
