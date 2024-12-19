@@ -78,7 +78,7 @@ class VisualizationWidget(QWidget):
             "Force_1", "Force_2",
             "Tau_LHip", "Tau_LKnee", "Tau_LAnkle",
             "q_LHip", "q_LKnee", "q_LAnkle",
-            "PropulsionDuration_L",
+            "PropulsionDuration_R", 'StanceDuration_R', 'Cycleduration'
         ]
         return {key: {} for key in keys}
 
