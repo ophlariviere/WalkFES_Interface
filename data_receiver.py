@@ -15,6 +15,7 @@ class DataReceiver(threading.Thread):
             server_ip,
             server_port,
             visualization_widget,
+            buffer,
             read_frequency=100,
             threshold=30,
     ):
@@ -32,7 +33,7 @@ class DataReceiver(threading.Thread):
         self.timeStim = 0
         self.visualization_widget = visualization_widget
         self.read_frequency = read_frequency
-        self.processor = DataProcessor(self.visualization_widget)  # Passez l'objet visualization_widget
+        self.processor = DataProcessor(self.visualization_widget, self.buffer)  # Passez l'objet visualization_widget
         self.dofcorr = {"LHip": (36, 37, 38), "LKnee": (39, 40, 41), "LAnkle": (42, 43, 44),
                         "RHip": (27, 28, 29), "RKnee": (30, 31, 32), "RAnkle": (33, 34, 35),
                         "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),
@@ -40,6 +41,7 @@ class DataReceiver(threading.Thread):
                         "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
         self.marker_names = None
         self.running = True  # Flag to stop the thread
+        self.buffer = buffer  # To put the data in cache
 
     def stop_receiving(self):
         self.running = False
@@ -130,7 +132,7 @@ class DataReceiver(threading.Thread):
         last_ap_force_mean = -last_ap_force_mean
         return ap_force_mean, last_ap_force_mean
 
-    def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean,PFnum):
+    def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean, PFnum):
         """Vérifie si la stimulation doit commencer."""
         return (
                 #and (ap_force_mean - last_ap_force_mean) > 0

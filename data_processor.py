@@ -8,7 +8,7 @@ from scipy.signal import filtfilt, butter, savgol_filter
 
 
 class DataProcessor:
-    def __init__(self, visualization_widget):
+    def __init__(self, visualization_widget, buffer):
         self.visualization_widget = visualization_widget
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.cycle_num = 0
@@ -17,6 +17,7 @@ class DataProcessor:
                         "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),
                         "RShoulder": (9, 10, 11), "RElbow": (12, 13, 14), "RWrist": (15, 16, 17),
                         "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
+        self.buffer = buffer
 
     def start_new_cycle(self, cycledata):
         logging.info("Début d'un nouveau cycle détecté.")
@@ -43,7 +44,7 @@ class DataProcessor:
                 kinematic_dynamic_result = results[0][0]
                 q = results[0][1]
                 qdot = results[0][2]
-                # qddot = results[0][3]
+                qddot = results[0][3]
 
                 gait_parameters = results[1]
                 cycledata['gait_parameter'] = gait_parameters
@@ -63,9 +64,10 @@ class DataProcessor:
                     keyqdot = f"qdot_{key}"
                     VitAng[keyqdot] = np.array([qdot[indices[0]], qdot[indices[1]], qdot[indices[2]]])
 
-                cycledata['Tau'] = moment
-                cycledata['VitAng'] = VitAng
-                cycledata['Angle'] = Ang
+                cycledata['Tau'] = moment      # Tau
+                cycledata['VitAng'] = VitAng   # Qdot
+                cycledata['Angle'] = Ang       # Q
+                cycledata['AccAng'] = qddot    # Qddot
 
             else:
                 # If self.model does not exist, handle only the gait parameters
@@ -77,9 +79,12 @@ class DataProcessor:
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
             self.cycle_num += 1
+            self.buffer.put(cycledata)
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du nouveau cycle : {e}")
+
+        return cycledata
 
     @staticmethod
     def forcedatafilter(data, order, sampling_rate, cutoff_freq):

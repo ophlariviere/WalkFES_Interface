@@ -7,6 +7,7 @@ import logging
 
 # Utilisez QThread pour exécuter DataReceiver en parallèle
 from PyQt5.QtCore import QThread
+import queue
 
 
 # Configure le logging
@@ -20,6 +21,9 @@ def main():
     server_ip = "192.168.0.1" #   # "192.168.0.1" 127.0.0.1# Adresse IP du serveur
     server_port = 7  # 7  # 50000 Port à utiliser
 
+    # Créer un buffer pour mettre en cache les données reçues
+    buffer = queue.Queue()
+
     # Créez une application PyQt5
     app = QApplication(sys.argv)
 
@@ -28,7 +32,7 @@ def main():
     visualization_widget.show()
 
     # Créez une instance de DataReceiver
-    data_receiver = DataReceiver(server_ip, server_port, visualization_widget)
+    data_receiver = DataReceiver(server_ip, server_port, visualization_widget, buffer)
 
     class DataThread(QThread):
         def __init__(self, receiver):
