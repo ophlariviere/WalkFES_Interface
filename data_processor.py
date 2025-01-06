@@ -26,11 +26,11 @@ class DataProcessor:
             if self.visualization_widget.model is not None:
                 futures.append(
                     self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Markers']))
-            """
+
             # Always add the gait parameters calculation
             futures.append(
                 self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers']))
-            """
+
             results = []
             for future in futures:
                 try:
@@ -69,8 +69,8 @@ class DataProcessor:
 
             else:
                 # If self.model does not exist, handle only the gait parameters
-                # gait_parameters = results[0]
-                # cycledata['gait_parameter'] = gait_parameters
+                gait_parameters = results[0]
+                cycledata['gait_parameter'] = gait_parameters
                 logging.info("Kinematic dynamic calculation skipped as self.model is not defined.")
 
             # TODO: Charbie -> check if the gait parameters are stable (if yes update params, else keep stimulating)
@@ -215,23 +215,35 @@ class DataProcessor:
         fz_pf2 = forcedata['Force_2'][2, :]
         fx_pf1 = forcedata['Force_1'][0, :]
         fx_pf2 = forcedata['Force_2'][0, :]
-        mks1 = mksdata['LCAL']
-        mks2 = mksdata['RCAL']
+        if 'LCAL' in mksdata:
+            mks1 = mksdata['LCAL']
+        if 'RCAL' in mksdata:
+            mks2 = mksdata['RCAL']
         RapportFs = len(mks1[0])/len(fx_pf2)
         rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
         ltoe_off = np.where(fz_pf1[:-20] > 30)[0][-2]
+        if ('LCAL' in mksdata) and ('RCAL' in mksdata):
+            gait_param = {
+                'StanceDuration_L': 100 * (ltoe_off / fs_pf),
+                'StanceDuration_R': 100 * (rheel_strikes / fs_pf),
+                'Cycleduration': len(fz_pf2) / fs_pf,
+                'StepWidth': np.abs(np.mean(mks1[1, :]) - np.mean(mks2[1, :])),
+                'StepLength_L': mks1[0, -1] - mks2[0, -1],
+                'StepLength_R': mks2[0, int(rheel_strikes * RapportFs)] - mks1[0, int(rheel_strikes * RapportFs)],
+                'PropulsionDuration_L': len(np.where(fx_pf1 > 6)[0]) / fs_pf,
+                'PropulsionDuration_R': len(np.where(fx_pf2 > 6)[0]) / fs_pf,
+                'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
+            }
+        else:
+            gait_param = {
+                'StanceDuration_L': 100 * (ltoe_off / fs_pf),
+                'StanceDuration_R': 100 * (rheel_strikes / fs_pf),
+                'Cycleduration': len(fz_pf2) / fs_pf,
+                'PropulsionDuration_L': len(np.where(fx_pf1 > 6)[0]) / fs_pf,
+                'PropulsionDuration_R': len(np.where(fx_pf2 > 6)[0]) / fs_pf,
+                'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
+            }
 
-        gait_param = {
-            'StanceDuration_L': 100 * (ltoe_off / fs_pf),
-            'StanceDuration_R': 100 * (rheel_strikes / fs_pf),
-            'Cycleduration': len(fz_pf2) / fs_pf,
-            'StepWidth': np.abs(np.mean(mks1[1, :]) - np.mean(mks2[1, :])),
-            'StepLength_L': mks1[0, -1] - mks2[0, -1],
-            'StepLength_R': mks2[0, int(rheel_strikes * RapportFs)] - mks1[0, int(rheel_strikes * RapportFs)],
-            'PropulsionDuration_L': len(np.where(fx_pf1 > 6)[0]) / fs_pf,
-            'PropulsionDuration_R': len(np.where(fx_pf2 > 6)[0]) / fs_pf,
-            'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
-        }
         return gait_param
 
     def extract_headers_and_values(self, data, parent_key='', sep='_'):

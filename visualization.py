@@ -80,7 +80,7 @@ class VisualizationWidget(QWidget):
             "Force_1", "Force_2",
             "Tau_LHip", "Tau_LKnee", "Tau_LAnkle",
             "q_LHip", "q_LKnee", "q_LAnkle",
-            "PropulsionDuration_L",
+            "PropulsionDuration_R", 'StanceDuration_R', 'Cycleduration'
         ]
         return {key: {} for key in keys}
 
@@ -423,7 +423,7 @@ class VisualizationWidget(QWidget):
                         interpolated_vector = self.interpolate_vector(value[0, :])  # TODO change to select axis
                         self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
                     else:
-                        interpolated_vector = self.interpolate_vector(value[0, :])
+                        interpolated_vector = self.interpolate_vector(value[1, :])
                         if 'Tau' in key:
                             self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector / 58)
                         else:
