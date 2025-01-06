@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QComboBox,
     QCheckBox,
+    QRadioButton,
     QPushButton,
     QWidget,
     QGroupBox,
@@ -20,9 +21,9 @@ from scipy.interpolate import interp1d
 import logging
 import sys
 import biorbd
-import pyScienceMode
-from pyScienceMode import Device, Modes, Channel
-from pyScienceMode import RehastimP24 as St
+import pysciencemode
+from pysciencemode import Device, Modes, Channel
+from pysciencemode import RehastimP24 as St
 
 
 # Configurer le logging
@@ -60,6 +61,7 @@ class VisualizationWidget(QWidget):
 
         # Contrôles de stimulation
         layout.addLayout(self.create_stimulation_controls())
+        layout.addLayout(self.create_optimization_mode())
 
         # Sélection des données à analyser
         layout.addWidget(self.create_analysis_group())
@@ -156,6 +158,25 @@ class VisualizationWidget(QWidget):
         layout.addWidget(self.start_button)
         layout.addWidget(self.update_button)
         layout.addWidget(self.stop_button)
+        return layout
+
+
+    def create_optimization_mode(self):
+        """Créer les boutons pour choisir si la stimulation est en mode manuel ou optimisé."""
+        layout = QHBoxLayout()
+        label = QLabel('Stimulation parameter mode:', self)
+        self.is_manual_mode = QRadioButton("Manual", self)
+        self.is_manual_mode.setChecked(True)
+        self.is_manual_mode.toggled.connect(self.update)
+        self.is_bayesian_mode = QRadioButton("Bayesian optimization", self)
+        self.is_bayesian_mode.toggled.connect(self.update)
+        self.is_ilc_mode = QRadioButton("Iterative learning control", self)
+        self.is_ilc_mode.toggled.connect(self.update)
+
+        layout.addWidget(label)
+        layout.addWidget(self.is_manual_mode)
+        layout.addWidget(self.is_bayesian_mode)
+        layout.addWidget(self.is_ilc_mode)
         return layout
 
     """Plot part"""
@@ -413,6 +434,43 @@ class VisualizationWidget(QWidget):
                 self.DataToPlot[key][self.stimConfigValue].append(value)
 
         self.update_graphs()
+
+
+    def choose_parameters_bayesian_optim(self, new_data):
+        """
+        Utilise les données reçues pour choisir les paramètres de stimulation à l'aide d'une optimisation Bayesienne.
+        - new_data: Nouvelles données du cycle actuel (peut être une valeur unitaire ou un vecteur)
+        """
+
+        # Parcours des clés de self.DataToPlot
+        for key in self.DataToPlot.keys():
+            # Initialiser la configuration de stimulation dans le dictionnaire si elle n'existe pas
+            if self.stimConfigValue not in self.DataToPlot[key]:
+                self.DataToPlot[key][self.stimConfigValue] = []
+
+            # Vérifier si la nouvelle donnée contient la clé
+            value = self.get_value_iterative(new_data, key)
+
+            # Vérifier si la valeur est numérique et l'ajouter directement
+            if isinstance(value, (np.ndarray, list)):  # Check for array-like objects
+                value = np.array(value)  # Ensure it's a NumPy array if it's not already
+                if value.ndim == 2:  # Check the number of dimensions
+                    if 'Force' in key or 'Moment' in key:
+                        interpolated_vector = self.interpolate_vector(value[0, :])  # TODO change to select axis
+                        self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
+                    else:
+                        interpolated_vector = self.interpolate_vector(value[0, :])
+                        if 'Tau' in key:
+                            self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector / 58)
+                        else:
+                            self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector * 180 / 3.14)
+                else:
+                    self.DataToPlot[key][self.stimConfigValue].append(value)
+            elif isinstance(value, (int, float)):  # Handle scalar numbers separately
+                self.DataToPlot[key][self.stimConfigValue].append(value)
+
+        self.update_graphs()
+
 
     @staticmethod
     def interpolate_vector(vector):

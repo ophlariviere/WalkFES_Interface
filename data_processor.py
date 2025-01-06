@@ -73,6 +73,7 @@ class DataProcessor:
                 # cycledata['gait_parameter'] = gait_parameters
                 logging.info("Kinematic dynamic calculation skipped as self.model is not defined.")
 
+            # TODO: Charbie -> check if the gait parameters are stable (if yes update params, else keep stimulating)
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
             self.cycle_num += 1
