@@ -1,12 +1,15 @@
 import time
 import numpy as np
+import threading
 from biosiglive import TcpClient
 from PyQt5.QtCore import QObject
 import logging
 from data_processor import DataProcessor
 
-
-class DataReceiver(QObject):
+class DataReceiver(threading.Thread):
+    """
+    TODO: remove visualization
+    """
     def __init__(
             self,
             server_ip,
@@ -36,10 +39,14 @@ class DataReceiver(QObject):
                         "RShoulder": (9, 10, 11), "RElbow": (12, 13, 14), "RWrist": (15, 16, 17),
                         "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
         self.marker_names = None
+        self.running = True  # Flag to stop the thread
+
+    def stop_receiving(self):
+        self.running = False
 
     def start_receiving(self):
         logging.info("Début de la réception des données...")
-        while True:
+        while self.running:
             tic = time.time()
             for _ in range(3):  # Tentatives multiples
                 try:
@@ -198,3 +205,4 @@ class DataReceiver(QObject):
                     logging.error(
                         f"Erreur lors de la concaténation des données pour la clé '{key}': {e}"
                     )
+
