@@ -33,7 +33,7 @@ class DataReceiver(threading.Thread):
         self.timeStim = 0
         self.visualization_widget = visualization_widget
         self.read_frequency = read_frequency
-        self.processor = DataProcessor(self.visualization_widget, self.buffer)  # Passez l'objet visualization_widget
+        self.processor = DataProcessor(visualization_widget, buffer)  # Passez l'objet visualization_widget
         self.dofcorr = {"LHip": (36, 37, 38), "LKnee": (39, 40, 41), "LAnkle": (42, 43, 44),
                         "RHip": (27, 28, 29), "RKnee": (30, 31, 32), "RAnkle": (33, 34, 35),
                         "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),

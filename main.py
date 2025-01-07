@@ -27,8 +27,8 @@ def main():
     # Créez une application PyQt5
     app = QApplication(sys.argv)
 
-    # Créez une instance du widget de visualisation ......
-    visualization_widget = VisualizationWidget()
+    # Créez une instance du widget de visualisation
+    visualization_widget = VisualizationWidget(buffer)
     visualization_widget.show()
 
     # Créez une instance de DataReceiver

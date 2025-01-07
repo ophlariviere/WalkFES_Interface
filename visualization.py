@@ -416,10 +416,23 @@ class VisualizationWidget(QWidget):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(True)
 
+    def manual_optim_chosen(self):
+        self.update_button.setEnabled(True)
+        self.start_bayesian_optim_button.setEnabled(False)
+        self.stop_bayesian_optim_button.setEnabled(False)
+        # TODO: Charbie -> add the ICL buttons
+
     def bayesian_optim_chosen(self):
-        self.manual_mode_button.setEnabled(False)
+        self.update_button.setEnabled(False)
         self.start_bayesian_optim_button.setEnabled(True)
         self.stop_bayesian_optim_button.setEnabled(True)
+        # TODO: Charbie -> add the ICL buttons
+
+    def ilc_optim_chosen(self):
+        self.update_button.setEnabled(False)
+        self.start_bayesian_optim_button.setEnabled(False)
+        self.stop_bayesian_optim_button.setEnabled(False)
+        # TODO: Charbie -> add the ICL buttons
 
     def update_stimulation(self):
         """Met à jour la stimulation."""
@@ -449,7 +462,10 @@ class VisualizationWidget(QWidget):
     def start_bayesian_optimization(self):
         """Démarre l'optimisation Bayésienne."""
         self.bayesian_optimizer = BayesianOptimizer(self)
-        self.bayesian_optimizer.perform_bayesian_optim()
+        result = self.bayesian_optimizer.perform_bayesian_optim()
+        self.save_optimal_bayesian_parameters(result)
+        self.bayesian_optimizer.plot_bayesian_optim_results(result)
+        # TODO : Charbie -> stimulate with these parameters for a few minutes ?
 
 
     def stop_bayesian_optimization(self):

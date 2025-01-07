@@ -228,7 +228,7 @@ class DataProcessor:
         rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
         ltoe_off = np.where(fz_pf1[:-20] > 30)[0][-2]
         if ('LCAL' in mksdata) and ('RCAL' in mksdata):
-            gait_param = {
+            gait_param = {  # @ophelierariviere: could you explain the parameters ?
                 'StanceDuration_L': 100 * (ltoe_off / fs_pf),
                 'StanceDuration_R': 100 * (rheel_strikes / fs_pf),
                 'Cycleduration': len(fz_pf2) / fs_pf,
@@ -237,7 +237,7 @@ class DataProcessor:
                 'StepLength_R': mks2[0, int(rheel_strikes * RapportFs)] - mks1[0, int(rheel_strikes * RapportFs)],
                 'PropulsionDuration_L': len(np.where(fx_pf1 > 6)[0]) / fs_pf,
                 'PropulsionDuration_R': len(np.where(fx_pf2 > 6)[0]) / fs_pf,
-                'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
+                'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),  # 60s/min * nb_step/s = nb_step/min ?
             }
         else:
             gait_param = {
