@@ -8,7 +8,7 @@ from scipy.signal import filtfilt, butter, savgol_filter
 
 
 class DataProcessor:
-    def __init__(self, visualization_widget):
+    def __init__(self, visualization_widget, buffer):
         self.visualization_widget = visualization_widget
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.cycle_num = 0
@@ -17,6 +17,7 @@ class DataProcessor:
                         "LShoulder": (18, 19, 20), "LElbow": (21, 22, 23), "LWrist": (24, 25, 26),
                         "RShoulder": (9, 10, 11), "RElbow": (12, 13, 14), "RWrist": (15, 16, 17),
                         "Thorax": (6, 7, 8), "Pelvis": (3, 4, 5)}
+        self.buffer = buffer
 
     def start_new_cycle(self, cycledata):
         logging.info("Début d'un nouveau cycle détecté.")
@@ -43,7 +44,7 @@ class DataProcessor:
                 kinematic_dynamic_result = results[0][0]
                 q = results[0][1]
                 qdot = results[0][2]
-                # qddot = results[0][3]
+                qddot = results[0][3]
 
                 gait_parameters = results[1]
                 cycledata['gait_parameter'] = gait_parameters
@@ -63,9 +64,10 @@ class DataProcessor:
                     keyqdot = f"qdot_{key}"
                     VitAng[keyqdot] = np.array([qdot[indices[0]], qdot[indices[1]], qdot[indices[2]]])
 
-                cycledata['Tau'] = moment
-                cycledata['VitAng'] = VitAng
-                cycledata['Angle'] = Ang
+                cycledata['Tau'] = moment      # Tau
+                cycledata['VitAng'] = VitAng   # Qdot
+                cycledata['Angle'] = Ang       # Q
+                cycledata['AccAng'] = qddot    # Qddot
 
             else:
                 # If self.model does not exist, handle only the gait parameters
@@ -73,12 +75,16 @@ class DataProcessor:
                 cycledata['gait_parameter'] = gait_parameters
                 logging.info("Kinematic dynamic calculation skipped as self.model is not defined.")
 
+            # TODO: Charbie -> check if the gait parameters are stable (if yes update params, else keep stimulating)
             self.executor.submit(self.visualization_widget.update_data_and_graphs, cycledata)
             self.executor.submit(self.save_cycle_data, cycledata)
             self.cycle_num += 1
+            self.buffer.put(cycledata)
 
         except Exception as e:
             logging.error(f"Erreur lors du traitement du nouveau cycle : {e}")
+
+        return cycledata
 
     @staticmethod
     def forcedatafilter(data, order, sampling_rate, cutoff_freq):
@@ -222,7 +228,7 @@ class DataProcessor:
         rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
         ltoe_off = np.where(fz_pf1[:-20] > 30)[0][-2]
         if ('LCAL' in mksdata) and ('RCAL' in mksdata):
-            gait_param = {
+            gait_param = {  # @ophelierariviere: could you explain the parameters ?
                 'StanceDuration_L': 100 * (ltoe_off / fs_pf),
                 'StanceDuration_R': 100 * (rheel_strikes / fs_pf),
                 'Cycleduration': len(fz_pf2) / fs_pf,
@@ -231,7 +237,7 @@ class DataProcessor:
                 'StepLength_R': mks2[0, int(rheel_strikes * RapportFs)] - mks1[0, int(rheel_strikes * RapportFs)],
                 'PropulsionDuration_L': len(np.where(fx_pf1 > 6)[0]) / fs_pf,
                 'PropulsionDuration_R': len(np.where(fx_pf2 > 6)[0]) / fs_pf,
-                'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),
+                'Cadence': 2 * (60 / (len(fz_pf2) / fs_pf)),  # 60s/min * nb_step/s = nb_step/min ?
             }
         else:
             gait_param = {

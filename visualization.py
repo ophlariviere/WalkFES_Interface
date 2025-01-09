@@ -6,12 +6,14 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QComboBox,
     QCheckBox,
+    QRadioButton,
     QPushButton,
     QWidget,
     QGroupBox,
     QSpinBox,
     QLabel,
     QFileDialog,
+    QGridLayout,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import numpy as np
@@ -19,18 +21,25 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import logging
 import sys
+from enum import Enum
 import biorbd
-import pyScienceMode
-from pyScienceMode import Device, Modes, Channel
-from pyScienceMode import RehastimP24 as St
+
+from bayesian_optimizer import BayesianOptimizer
+from pysciencemode import Device, Modes, Channel
+from pysciencemode import RehastimP24 as St
 
 
 # Configurer le logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+class StimulationMode(Enum):
+    """ Enum for the choice of the stimulation mode."""
+    MANUAL = 1
+    BAYESIAN = 2
+    ILC = 3
 
 class VisualizationWidget(QWidget):
-    def __init__(self):
+    def __init__(self, buffer):
         super().__init__()
         self.title = "Interface Stimulation"
         self.channels = []
@@ -42,6 +51,10 @@ class VisualizationWidget(QWidget):
         self.stimulator = None
         self.stimconfig = {}  # Initialisation correcte ici
         self.HadAnNewStimConfig = False
+        self.buffer = buffer
+        self.stimulator_is_active = False
+        self.stimulator_is_started = False
+        self.stimulation_mode = StimulationMode.MANUAL
         self.init_ui()
 
     def init_ui(self):
@@ -60,6 +73,7 @@ class VisualizationWidget(QWidget):
 
         # Contrôles de stimulation
         layout.addLayout(self.create_stimulation_controls())
+        layout.addWidget(self.create_optimization_mode())
 
         # Sélection des données à analyser
         layout.addWidget(self.create_analysis_group())
@@ -140,23 +154,63 @@ class VisualizationWidget(QWidget):
     def create_stimulation_controls(self):
         """Créer les boutons pour contrôler la stimulation."""
         layout = QHBoxLayout()
-        self.activate_button = QPushButton("Activer Stimulateur")
-        self.activate_button.clicked.connect(self.activate_stimulateur)
-        self.update_button = QPushButton("Actualiser Paramètre Stim")
-        self.update_button.clicked.connect(self.update_stimulation)
-        self.start_button = QPushButton("Démarrer Stimulation")
-        self.start_button.clicked.connect(self.start_stimulation)
-        self.stop_button = QPushButton("Arrêter Stimuleur")
-        self.stop_button.clicked.connect(self.stop_stimulation)
+
         self.checkpauseStim = QCheckBox("Stop tying send stim", self)
         self.checkpauseStim.setChecked(True)
         self.checkpauseStim.stateChanged.connect(self.pausefonctiontosendstim)
+
+        self.activate_button = QPushButton("Activer Stimulateur")
+        self.activate_button.clicked.connect(self.activate_stimulateur)
+
+        self.start_button = QPushButton("Démarrer Stimulation")
+        self.start_button.setEnabled(False)
+        self.start_button.clicked.connect(self.start_stimulation)
+
+        self.stop_button = QPushButton("Arrêter Stimuleur")
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop_stimulation)
+
         layout.addWidget(self.checkpauseStim)
         layout.addWidget(self.activate_button)
         layout.addWidget(self.start_button)
-        layout.addWidget(self.update_button)
         layout.addWidget(self.stop_button)
         return layout
+
+
+    def create_optimization_mode(self):
+        """Créer les boutons pour choisir si la stimulation est en mode manuel ou optimisé."""
+
+        groupbox = QGroupBox("Stimulation parameter mode:")
+        layout = QGridLayout()
+
+        self.manual_mode_button = QRadioButton("Manual", self)
+        self.manual_mode_button.setChecked(True)
+        self.manual_mode_button.toggled.connect(self.manual_optim_chosen)
+        self.update_button = QPushButton("Actualiser Paramètre Stim")
+        self.update_button.setEnabled(False)
+        self.update_button.clicked.connect(self.update_stimulation)
+        layout.addWidget(self.manual_mode_button, 0, 0)
+        layout.addWidget(self.update_button, 0, 1)
+
+        self.bayesian_mode_button = QRadioButton("Bayesian optimization", self)
+        self.bayesian_mode_button.toggled.connect(self.bayesian_optim_chosen)
+        self.start_bayesian_optim_button = QPushButton("Start optim")
+        self.start_bayesian_optim_button.setEnabled(False)
+        self.start_bayesian_optim_button.clicked.connect(self.start_bayesian_optimization)
+        self.stop_bayesian_optim_button = QPushButton("Early termination optim")
+        self.stop_bayesian_optim_button.setEnabled(False)
+        self.stop_bayesian_optim_button.clicked.connect(self.stop_bayesian_optimization)
+        layout.addWidget(self.bayesian_mode_button, 1, 0)
+        layout.addWidget(self.start_bayesian_optim_button, 1, 1)
+        layout.addWidget(self.stop_bayesian_optim_button, 1, 2)
+
+        self.ilc_mode_button = QRadioButton("Iterative learning control", self)
+        self.ilc_mode_button.toggled.connect(self.ilc_optim_chosen)
+        self.ilc_mode_button.setEnabled(False)  # TODO: Charbie -> Implement ILC, for now always disabled
+        layout.addWidget(self.ilc_mode_button, 2, 0)
+
+        groupbox.setLayout(layout)
+        return groupbox
 
     """Plot part"""
     def create_analysis_group(self):
@@ -190,6 +244,17 @@ class VisualizationWidget(QWidget):
 
     def new_stim_config(self):
         self.HadAnNewStimConfig = True
+
+    def set_channel_inputs(self, channel, channel_layout, name_input, amplitude_input, pulse_width_input, frequency_input, mode_input):
+        # Enregistrer les widgets pour le canal sélectionné
+        self.channel_inputs[channel] = {
+            "layout": channel_layout,
+            "name_input": name_input,
+            "amplitude_input": amplitude_input,
+            "pulse_width_input": pulse_width_input,
+            "frequency_input": frequency_input,
+            "mode_input": mode_input,
+        }
 
     def update_channel_inputs(self):
         """Met à jour les entrées des canaux sélectionnés sous les cases à cocher."""
@@ -228,16 +293,9 @@ class VisualizationWidget(QWidget):
 
                 # Ajouter le layout dans l'affichage des paramètres des canaux
                 self.channel_config_layout.addLayout(channel_layout)
+                self.set_channel_inputs(self, channel, channel_layout, name_input, amplitude_input, pulse_width_input,
+                                  frequency_input, mode_input)
 
-                # Enregistrer les widgets pour le canal sélectionné
-                self.channel_inputs[channel] = {
-                    "layout": channel_layout,
-                    "name_input": name_input,
-                    "amplitude_input": amplitude_input,
-                    "pulse_width_input": pulse_width_input,
-                    "frequency_input": frequency_input,
-                    "mode_input": mode_input,
-                }
 
         # Supprimer les canaux désélectionnés
         for channel in list(self.channel_inputs.keys()):
@@ -293,6 +351,14 @@ class VisualizationWidget(QWidget):
         except Exception as e:
             logging.error(f"Erreur lors du démarrage de la stimulation : {e}")
 
+        self.stimulator_is_started = True
+        if self.is_manual_mode:
+            self.update_button.setEnabled(True)
+        elif self.is_bayesian_mode:
+            self.start_bayesian_optim_button.setEnabled(True)
+            self.stop_bayesian_optim_button.setEnabled(True)
+
+
     def stop_stimulation(self):
         try:
             if self.stimulator:
@@ -307,6 +373,9 @@ class VisualizationWidget(QWidget):
         except Exception as e:
             logging.error(f"Erreur lors de l'arrêt de la stimulation : {e}")
 
+        self.stimulator_is_started = False
+
+
     def pause_stimulation(self):
         try:
             if self.stimulator:
@@ -316,6 +385,8 @@ class VisualizationWidget(QWidget):
                 logging.warning("Aucun stimulateur actif à arrêter.")
         except Exception as e:
             logging.error(f"Erreur lors de l'arrêt de la stimulation : {e}")
+
+        self.stimulator_is_started = False
 
     def pausefonctiontosendstim(self):
         # Met à jour self.dolookstimsend selon l'état de la checkbox
@@ -342,7 +413,26 @@ class VisualizationWidget(QWidget):
         if self.channels:
             self.stimulator.init_stimulation(list_channels=self.channels)
 
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(True)
 
+    def manual_optim_chosen(self):
+        self.update_button.setEnabled(True)
+        self.start_bayesian_optim_button.setEnabled(False)
+        self.stop_bayesian_optim_button.setEnabled(False)
+        # TODO: Charbie -> add the ICL buttons
+
+    def bayesian_optim_chosen(self):
+        self.update_button.setEnabled(False)
+        self.start_bayesian_optim_button.setEnabled(True)
+        self.stop_bayesian_optim_button.setEnabled(True)
+        # TODO: Charbie -> add the ICL buttons
+
+    def ilc_optim_chosen(self):
+        self.update_button.setEnabled(False)
+        self.start_bayesian_optim_button.setEnabled(False)
+        self.stop_bayesian_optim_button.setEnabled(False)
+        # TODO: Charbie -> add the ICL buttons
 
     def update_stimulation(self):
         """Met à jour la stimulation."""
@@ -369,6 +459,19 @@ class VisualizationWidget(QWidget):
                 self.stimconfig[channel]["mode"] = inputs["mode_input"].currentText()
                 self.stimconfig[channel]["device_type"] = Device.Rehastimp24
 
+    def start_bayesian_optimization(self):
+        """Démarre l'optimisation Bayésienne."""
+        self.bayesian_optimizer = BayesianOptimizer(self)
+        result = self.bayesian_optimizer.perform_bayesian_optim()
+        self.save_optimal_bayesian_parameters(result)
+        self.bayesian_optimizer.plot_bayesian_optim_results(result)
+        # TODO : Charbie -> stimulate with these parameters for a few minutes ?
+
+
+    def stop_bayesian_optimization(self):
+        """Arrête l'optimisation Bayésienne."""
+        # TODO save the best parameters
+        pass
 
 
 
@@ -413,6 +516,43 @@ class VisualizationWidget(QWidget):
                 self.DataToPlot[key][self.stimConfigValue].append(value)
 
         self.update_graphs()
+
+
+    def choose_parameters_bayesian_optim(self, new_data):
+        """
+        Utilise les données reçues pour choisir les paramètres de stimulation à l'aide d'une optimisation Bayesienne.
+        - new_data: Nouvelles données du cycle actuel (peut être une valeur unitaire ou un vecteur)
+        """
+
+        # Parcours des clés de self.DataToPlot
+        for key in self.DataToPlot.keys():
+            # Initialiser la configuration de stimulation dans le dictionnaire si elle n'existe pas
+            if self.stimConfigValue not in self.DataToPlot[key]:
+                self.DataToPlot[key][self.stimConfigValue] = []
+
+            # Vérifier si la nouvelle donnée contient la clé
+            value = self.get_value_iterative(new_data, key)
+
+            # Vérifier si la valeur est numérique et l'ajouter directement
+            if isinstance(value, (np.ndarray, list)):  # Check for array-like objects
+                value = np.array(value)  # Ensure it's a NumPy array if it's not already
+                if value.ndim == 2:  # Check the number of dimensions
+                    if 'Force' in key or 'Moment' in key:
+                        interpolated_vector = self.interpolate_vector(value[0, :])  # TODO change to select axis
+                        self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
+                    else:
+                        interpolated_vector = self.interpolate_vector(value[0, :])
+                        if 'Tau' in key:
+                            self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector / 58)
+                        else:
+                            self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector * 180 / 3.14)
+                else:
+                    self.DataToPlot[key][self.stimConfigValue].append(value)
+            elif isinstance(value, (int, float)):  # Handle scalar numbers separately
+                self.DataToPlot[key][self.stimConfigValue].append(value)
+
+        self.update_graphs()
+
 
     @staticmethod
     def interpolate_vector(vector):
