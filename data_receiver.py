@@ -25,7 +25,7 @@ class DataReceiver(QObject):
         self.threshold = threshold
         self.stimulator = []
         self.datacycle = {}
-        self.sendStim = {1: False, 2: False}
+        self.sendStim = {'1': False, '2': False}
         self.timeStim = 0
         self.visualization_widget = visualization_widget
         self.read_frequency = read_frequency
@@ -98,7 +98,7 @@ class DataReceiver(QObject):
                 if self._should_start_stimulation(ap_force_mean, last_ap_force_mean, PFnum):
                     self._start_stimulation(PFnum)
                 elif self._should_stop_stimulation(ap_force_mean, last_ap_force_mean, PFnum):
-                    self._stop_stimulation()
+                    self._stop_stimulation(PFnum)
         except Exception as e:
             logging.error(f"Erreur lors de la stimulation : {e}")
 
@@ -127,7 +127,7 @@ class DataReceiver(QObject):
         """Vérifie si la stimulation doit commencer."""
         return (
                 #and (ap_force_mean - last_ap_force_mean) > 0
-                self.sendStim[PFnum] is False and
+                self.sendStim[str(PFnum)] is False and
                 ap_force_mean > 5
                 and self.visualization_widget.stimulator is not None
         )
@@ -136,7 +136,7 @@ class DataReceiver(QObject):
         """Démarre la stimulation pour le canal spécifié."""
         channel_to_stim = [1, 2, 3, 4] if PFnum == 1 else [5, 6, 7, 8]
         self.visualization_widget.start_stimulation(channel_to_stim)
-        self.sendStim[PFnum] = True
+        self.sendStim[str(PFnum)] = True
         self.timeStim = time.time()
 
     def _should_stop_stimulation(self, ap_force_mean, last_ap_force_mean,PFnum):
@@ -144,16 +144,16 @@ class DataReceiver(QObject):
         time_since_stim = time.time() - self.timeStim
         return (
                 #and  ((ap_force_mean - last_ap_force_mean) < 0
-                ((self.sendStim[PFnum] is True)
+                ((self.sendStim[str(PFnum)] is True)
                  and ap_force_mean < 10
                  and time_since_stim > 0.2)
-                or (time_since_stim > 0.8 and self.sendStim[PFnum] is True)
+                or (time_since_stim > 0.8 and self.sendStim[str(PFnum)] is True)
         )
 
     def _stop_stimulation(self,PFnum):
         """Arrête la stimulation."""
         self.visualization_widget.pause_stimulation()
-        self.sendStim[PFnum] = False
+        self.sendStim[str(PFnum)] = False
 
     def process_data(self, received_data):
         self.check_cycle(received_data)
