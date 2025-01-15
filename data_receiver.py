@@ -4,6 +4,8 @@ from biosiglive import TcpClient
 from PyQt5.QtCore import QObject
 import logging
 from data_processor import DataProcessor
+import pandas as pd
+from scipy.signal import butter, filtfilt
 
 
 class DataReceiver(QObject):
@@ -69,7 +71,7 @@ class DataReceiver(QObject):
                             received_data["Force"][start_idx + 3 * i + 2][:],
                         ]
                     )
-            print(np.mean(frc_data['Force_1'][0][:]),np.mean(frc_data['Force_2'][0][:]))
+            #print(np.mean(frc_data['Force_1'][0][:]),np.mean(frc_data['Force_2'][0][:]))
 
             # Organisation des données reçues
             mks_data = {}
@@ -94,63 +96,73 @@ class DataReceiver(QObject):
     def check_stimulation(self, received_data):
         try:
             for PFnum in range(1, 3):
-                ap_force_mean, last_ap_force_mean = self._calculate_force_means(received_data, PFnum)
-                if self._should_start_stimulation(ap_force_mean, last_ap_force_mean, PFnum):
+                ap_force_mean = self._calculate_force_means(received_data, PFnum)
+                force_z = np.nanmean(received_data["Force"]["Force_" + str(PFnum)][2, :])
+                if self._should_start_stimulation(ap_force_mean, force_z, PFnum):
                     self._start_stimulation(PFnum)
-                elif self._should_stop_stimulation(ap_force_mean, last_ap_force_mean, PFnum):
+                elif self._should_stop_stimulation(ap_force_mean, force_z, PFnum):
                     self._stop_stimulation(PFnum)
         except Exception as e:
             logging.error(f"Erreur lors de la stimulation : {e}")
 
     def _calculate_force_means(self, received_data, PFnum):
         """Calcule les moyennes des forces actuelles et précédentes pour PFnum."""
-        print(PFnum)
-        ap_force_mean = np.nanmean(received_data["Force"]["Force_" + str(PFnum)][0, :])
-        ap_force_mean = -ap_force_mean
-        long = len(received_data["Force"]["Force_" + str(PFnum)][0, :])
-        last_ap_force_mean = (
-            np.nanmean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -long:])
-            if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][0, :]) > 0
-            else np.NaN
-        )
+        # ap_force_mean = np.nanmean(received_data["Force"]["Force_" + str(PFnum)][1, :])
+        long = len(received_data["Force"]["Force_" + str(PFnum)][1, :])
+        #if np.isnan(ap_force_mean):
+        ap_force = ((self.datacycle["Force"]["Force_" + str(PFnum)][1, -5*long:])
+            if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][1, :]) >= 5*long
+            else np.nan)
+
+        """
+        data_interpolated = pd.Series(ap_force).interpolate(method='linear').to_numpy()
+        fs=2000
+        order=2
+        nyquist = 0.5 * fs
+        nyquist = 0.5 * fs  # Fréquence de Nyquist
+        low = 2/ nyquist
+        high = 20 / nyquist
+        b, a = butter(order, [low, high], btype='band')
+        force_data_filtered = filtfilt(b, a, data_interpolated)
+        """
+        """
         if np.isnan(last_ap_force_mean):
             last_ap_force_mean = (
-                np.nanmean(self.datacycle["Force"]["Force_" + str(PFnum)][0, -2*long-2:-long-2])
-                if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][0, :]) > 0
+                np.nanmean(self.datacycle["Force"]["Force_" + str(PFnum)][1, -2*long-2:-long-2])
+                if "Force" in self.datacycle and len(self.datacycle["Force"]["Force_" + str(PFnum)][1, :]) > 0
                 else np.NaN
             )
 
-        last_ap_force_mean = -last_ap_force_mean
-        return ap_force_mean, last_ap_force_mean
+        last_ap_force_mean = last_ap_force_mean
+        """
+        return np.nanmean(ap_force)
 
-    def _should_start_stimulation(self, ap_force_mean, last_ap_force_mean,PFnum):
+    def _should_start_stimulation(self, ap_force_mean, Fz, PFnum):
         """Vérifie si la stimulation doit commencer."""
         return (
-                #and (ap_force_mean - last_ap_force_mean) > 0
                 self.sendStim[str(PFnum)] is False and
-                ap_force_mean > 5
+                ap_force_mean <-20 and Fz > 400
                 and self.visualization_widget.stimulator is not None
         )
 
     def _start_stimulation(self, PFnum):
         """Démarre la stimulation pour le canal spécifié."""
-        channel_to_stim = [1, 2, 3, 4] if PFnum == 1 else [5, 6, 7, 8]
+        print("Start stim PF", str(PFnum))
+        channel_to_stim = [5, 6, 7, 8] if PFnum == 1 else [1, 2, 3, 4]
         self.visualization_widget.start_stimulation(channel_to_stim)
         self.sendStim[str(PFnum)] = True
         self.timeStim = time.time()
 
-    def _should_stop_stimulation(self, ap_force_mean, last_ap_force_mean,PFnum):
+    def _should_stop_stimulation(self, ap_force_mean, Fz, PFnum):
         """Vérifie si la stimulation doit s'arrêter."""
         time_since_stim = time.time() - self.timeStim
+
         return (
-                #and  ((ap_force_mean - last_ap_force_mean) < 0
-                ((self.sendStim[str(PFnum)] is True)
-                 and ap_force_mean < 10
-                 and time_since_stim > 0.2)
-                or (time_since_stim > 0.8 and self.sendStim[str(PFnum)] is True)
+                (self.sendStim[str(PFnum)] is True) and (time_since_stim>0.3)
+                 and (ap_force_mean > -1 or (time_since_stim > 1) or Fz<10)
         )
 
-    def _stop_stimulation(self,PFnum):
+    def _stop_stimulation(self, PFnum):
         """Arrête la stimulation."""
         self.visualization_widget.pause_stimulation()
         self.sendStim[str(PFnum)] = False

@@ -1,4 +1,4 @@
-from PyQt5.Qt import Qt
+
 from PyQt5.QtWidgets import (
     QApplication,
     QVBoxLayout,
@@ -20,7 +20,6 @@ from scipy.interpolate import interp1d
 import logging
 import sys
 import biorbd
-import pysciencemode
 from pysciencemode import Device, Modes, Channel
 from pysciencemode import RehastimP24 as St
 
@@ -399,7 +398,7 @@ class VisualizationWidget(QWidget):
                 value = np.array(value)  # Ensure it's a NumPy array if it's not already
                 if value.ndim == 2:  # Check the number of dimensions
                     if 'Force' in key or 'Moment' in key:
-                        interpolated_vector = self.interpolate_vector(value[0, :])  # TODO change to select axis
+                        interpolated_vector = self.interpolate_vector(value[1, :])  # TODO change to select axis
                         self.DataToPlot[key][self.stimConfigValue].append(interpolated_vector)
                     else:
                         interpolated_vector = self.interpolate_vector(value[1, :])

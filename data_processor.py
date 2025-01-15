@@ -28,6 +28,7 @@ class DataProcessor:
                     self.executor.submit(self.calculate_kinematic_dynamic, cycledata['Force'], cycledata['Markers']))
 
             # Always add the gait parameters calculation
+
             futures.append(
                 self.executor.submit(self.calculate_gait_parameters, cycledata['Force'], cycledata['Markers']))
 
@@ -214,14 +215,15 @@ class DataProcessor:
         fz_pf2 = forcedata['Force_2'][2, :]
         fx_pf1 = forcedata['Force_1'][0, :]
         fx_pf2 = forcedata['Force_2'][0, :]
-        if 'LCAL' in mksdata:
-            mks1 = mksdata['LCAL']
-        if 'RCAL' in mksdata:
-            mks2 = mksdata['RCAL']
-        RapportFs = len(mks1[0])/len(fx_pf2)
+        #fs_mks=len(mks1[0])
+        fs_mks = 100
+        RapportFs = fs_mks/fs_pf
         rheel_strikes = np.where((fz_pf2[1:] > 30) & (fz_pf2[:-1] <= 30))[0][0] + 1
         ltoe_off = np.where(fz_pf1[:-20] > 30)[0][-2]
+
         if ('LCAL' in mksdata) and ('RCAL' in mksdata):
+            mks1 = mksdata['LCAL']
+            mks2 = mksdata['RCAL']
             gait_param = {
                 'StanceDuration_L': 100 * (ltoe_off / fs_pf),
                 'StanceDuration_R': 100 * (rheel_strikes / fs_pf),
@@ -395,18 +397,19 @@ class DataProcessor:
             stimulation_config = {}
 
             # Iterate over all channels stored in visualization_widget.channel_inputs
-            for i, inputs in enumerate(self.visualization_widget.stimconfigs):
-                channel_number = i + 1  # Channel numbers are 1-based
+            for channel, config in self.visualization_widget.stimconfig.items():
+                channel_number = channel  # Ou si vous préférez utiliser un autre identifiant pour les canaux, ajustez ici
 
-                # Access each input field for the current channel
-                name = inputs['name'].text()
-                amplitude = inputs['amplitude'].text()
-                frequence = inputs['frequence'].text()
-                duree = inputs['duree'].text()
-                largeur = inputs['largeur'].text()
-                mode = inputs['mode'].currentText()
+                # Récupérer les valeurs pour chaque paramètre de ce canal
+                name = config.get("name", "")
+                amplitude = config.get("amplitude", "")
+                frequence = config.get("frequency", "")
+                duree = config.get("pulse_width", "")  # Pulse width semble être la durée
+                largeur = config.get("pulse_width",
+                                     "")  # Largeur de l'impulsion, en fonction de la terminologie utilisée
+                mode = config.get("mode", "")
 
-                # Store each parameter in the dictionary with the appropriate key
+                # Stocker dans le dictionnaire de stimulation
                 stimulation_config[f"channel{channel_number}_name"] = name
                 stimulation_config[f"channel{channel_number}_Amplitude"] = amplitude
                 stimulation_config[f"channel{channel_number}_Fréquence"] = frequence
@@ -414,7 +417,9 @@ class DataProcessor:
                 stimulation_config[f"channel{channel_number}_Largeur"] = largeur
                 stimulation_config[f"channel{channel_number}_Mode"] = mode
 
+            # Retourner la configuration complète
             return stimulation_config
+
         except Exception as e:
             logging.error(f"Erreur lors de la récupération de la configuration de stimulation : {e}")
             return {}
