@@ -249,9 +249,9 @@ class VisualizationWidget(QWidget):
     def new_stim_config(self):
         self.HadAnNewStimConfig = True
 
-    def set_channel_inputs(self, channel, channel_layout, name_input, amplitude_input, pulse_width_input, frequency_input, mode_input):
+    def set_channel_inputs(self, channel_name, channel_layout, name_input, amplitude_input, pulse_width_input, frequency_input, mode_input):
         # Enregistrer les widgets pour le canal sélectionné
-        self.channel_inputs[channel] = {
+        self.channel_inputs[channel_name] = {
             "layout": channel_layout,
             "name_input": name_input,
             "amplitude_input": amplitude_input,
@@ -268,6 +268,8 @@ class VisualizationWidget(QWidget):
 
         # Ajouter les nouveaux canaux sélectionnés
         for channel in selected_channels:
+            print(channel, "         ", selected_channels, "      ", self.channel_inputs)
+
             if channel not in self.channel_inputs:
                 # Layout pour les entrées du canal
                 channel_layout = QHBoxLayout()
@@ -297,7 +299,9 @@ class VisualizationWidget(QWidget):
 
                 # Ajouter le layout dans l'affichage des paramètres des canaux
                 self.channel_config_layout.addLayout(channel_layout)
-                self.set_channel_inputs(channel, channel_layout, name_input, amplitude_input, pulse_width_input,
+                print("channel: ", channel, " selected")
+                channel_name = str(channel)
+                self.set_channel_inputs(channel_name, channel_layout, name_input, amplitude_input, pulse_width_input,
                                   frequency_input, mode_input)
 
         # Supprimer les canaux désélectionnés
@@ -325,8 +329,11 @@ class VisualizationWidget(QWidget):
                 return
 
             self.channels = []
+            # TODO: Charbie -> There is a problem in this loop where there is only one Channel selected
             for channel, inputs in self.channel_inputs.items():
                 if channel in channel_to_send:
+                    print("chqnnelllll", channel)
+                    print("chqnnelllll", type(channel))
                     channel_obj = Channel(
                         no_channel=channel,
                         name=inputs["name_input"].text(),
@@ -404,6 +411,8 @@ class VisualizationWidget(QWidget):
 
         self.channels = []
         for channel, inputs in self.channel_inputs.items():
+            print("===== chqnnel ", channel)
+            print("===== chqnnel ", type(channel))
             channel_obj = Channel(
                 no_channel=channel,
                 name=inputs["name_input"].text(),
@@ -445,6 +454,7 @@ class VisualizationWidget(QWidget):
 
         if self.stimulator is not None:
             for channel, inputs in self.channel_inputs.items():
+                print("))))) channel", channel)
                 # Vérifiez si le canal existe dans stimconfig, sinon, initialisez-le
                 if channel not in self.stimconfig:
                     self.stimconfig[channel] = {
