@@ -35,6 +35,7 @@ def main():
     data_receiver = DataReceiver(server_ip, server_port, visualization_widget, buffer)
 
     class DataThread(QThread):
+
         def __init__(self, receiver):
             super().__init__()
             self.receiver = receiver
