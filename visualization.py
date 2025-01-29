@@ -52,9 +52,12 @@ class VisualizationWidget(QWidget):
         self.stimconfig = {}  # Initialisation correcte ici
         self.HadAnNewStimConfig = False
         self.buffer = buffer
+        self.is_manual_mode = True
+        self.is_bayesian_mode = False
         self.stimulator_is_active = False
         self.stimulator_is_started = False
         self.stimulation_mode = StimulationMode.MANUAL
+        self.channel_selection_text = QLabel("Selectionnez un cannal avant de demarrer la stimulation.")
         self.init_ui()
 
     def init_ui(self):
@@ -136,6 +139,7 @@ class VisualizationWidget(QWidget):
         # Ajouter les cases à cocher pour sélectionner les canaux
         self.checkboxes = []
         checkbox_layout = QHBoxLayout()
+        checkbox_layout.addWidget(self.channel_selection_text)
         for i in range(1, 9):
             checkbox = QCheckBox(f"Canal {i}")
             checkbox.stateChanged.connect(self.update_channel_inputs)
@@ -278,7 +282,7 @@ class VisualizationWidget(QWidget):
                 pulse_width_input.setRange(0, 1000)
                 pulse_width_input.setSuffix(" µs")
                 frequency_input = QSpinBox()
-                frequency_input.setRange(0, 200)
+                frequency_input.setRange(10, 200)  # Starting from 10 to avoid division by 0
                 frequency_input.setSuffix(" Hz")
                 mode_input = QComboBox()
                 mode_input.addItems(["SINGLE", "DOUBLET", "TRIPLET"])
@@ -293,9 +297,8 @@ class VisualizationWidget(QWidget):
 
                 # Ajouter le layout dans l'affichage des paramètres des canaux
                 self.channel_config_layout.addLayout(channel_layout)
-                self.set_channel_inputs(self, channel, channel_layout, name_input, amplitude_input, pulse_width_input,
+                self.set_channel_inputs(channel, channel_layout, name_input, amplitude_input, pulse_width_input,
                                   frequency_input, mode_input)
-
 
         # Supprimer les canaux désélectionnés
         for channel in list(self.channel_inputs.keys()):
@@ -310,6 +313,8 @@ class VisualizationWidget(QWidget):
                         widget.deleteLater()
                 # Supprimer le layout lui-même
                 self.channel_config_layout.removeItem(layout)
+
+        self.channel_selection_text.setText(f"Cannaux selectionnes: {selected_channels}")
 
     def start_stimulation(self, channel_to_send):
         try:
@@ -446,7 +451,7 @@ class VisualizationWidget(QWidget):
                         "name": "",
                         "amplitude": 0,
                         "pulse_width": 0,
-                        "frequency": 0,
+                        "frequency": 10,
                         "mode": "",
                         "device_type": None,
                     }
