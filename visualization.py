@@ -22,6 +22,7 @@ import sys
 import biorbd
 from pysciencemode import Device, Modes, Channel
 from pysciencemode import RehastimP24 as St
+from data_receiver import DataReceiver
 
 
 # Configurer le logging
@@ -41,7 +42,10 @@ class VisualizationWidget(QWidget):
         self.stimulator = None
         self.stimconfig = {}  # Initialisation correcte ici
         self.HadAnNewStimConfig = False
+        self.participant_mass = 70
+        self.stimissendingstim = False
         self.init_ui()
+
 
     def init_ui(self):
         """Initialisation de l'interface utilisateur."""
@@ -91,10 +95,22 @@ class VisualizationWidget(QWidget):
         self.button.clicked.connect(self.open_filename_dialog)
         self.label = QLabel("Aucun fichier sélectionné", self)
 
+        self.label2 = QLabel("             Participant mass [kg]:", self)
+        self.mass = QSpinBox()
+        self.mass.setRange(0, 200)
+        self.mass.valueChanged.connect(self.update_mass)
+
+
         layout.addWidget(self.button)
         layout.addWidget(self.label)
+        layout.addWidget(self.label2)
+        layout.addWidget(self.mass)
         groupbox.setLayout(layout)
+
         return groupbox
+
+    def update_mass(self):
+        self.participant_mass = self.mass.value()
 
     """Save part"""
     def create_save_group(self):
@@ -260,43 +276,33 @@ class VisualizationWidget(QWidget):
                 )
                 return
 
-            self.channels = []
             for channel, inputs in self.channel_inputs.items():
                 if channel in channel_to_send:
-                    channel_obj = Channel(
-                        no_channel=channel,
-                        name=inputs["name_input"].text(),
-                        amplitude=inputs["amplitude_input"].value(),
-                        pulse_width=inputs["pulse_width_input"].value(),
-                        frequency=inputs["frequency_input"].value(),
-                        mode=Modes.SINGLE,
-                        device_type=Device.Rehastimp24,
-                    )
+                    # Utilisation de 'setattr' pour appeler dynamiquement la méthode 'set_amplitude' pour chaque canal
+                    channel_obj_name = f"channel_{channel}"  # Génère le nom dynamique
+                    channel_obj = getattr(self, channel_obj_name, None)  # Récupère l'objet dynamique
+                    if channel_obj:  # Vérifie si l'objet existe
+                        channel_obj.set_amplitude(self.stimconfig[channel]["amplitude"])
                 else:
-                    channel_obj = Channel(
-                        no_channel=channel,
-                        name=inputs["name_input"].text(),
-                        amplitude=0,
-                        pulse_width=inputs["pulse_width_input"].value(),
-                        frequency=inputs["frequency_input"].value(),
-                        mode=Modes.SINGLE,
-                        device_type=Device.Rehastimp24,
-                    )
-                self.channels.append(channel_obj)
+                    # Si le canal n'est pas dans 'channel_to_send', l'amplitude est mise à 0
+                    channel_obj_name = f"channel_{channel}"
+                    channel_obj = getattr(self, channel_obj_name, None)
+                    if channel_obj:
+                        channel_obj.set_amplitude(0)
+
             if self.channels:
                 self.stimulator.init_stimulation(list_channels=self.channels)
-                self.stimulator.start_stimulation(
-                    upd_list_channels=self.channels, safety=True
-                )
-            logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
+                self.stimulator.update_stimulation(upd_list_channels=self.channels)
+                self.stimulator.start_stimulation(upd_list_channels=self.channels)
+                self.stimissendingstim = True
+                logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
         except Exception as e:
             logging.error(f"Erreur lors du démarrage de la stimulation : {e}")
 
     def stop_stimulation(self):
         try:
             if self.stimulator:
-                # self.pause_stimulation()
-                self.stimulator.end_stimulation()
+                self.pause_stimulation()
                 self.stimulator.close_port()
                 self.stimulator_is_active = False
                 self.stimulator = None
@@ -310,6 +316,7 @@ class VisualizationWidget(QWidget):
         try:
             if self.stimulator:
                 self.stimulator.end_stimulation()
+                self.stimissendingstim = False
                 logging.info("Stimulation arrêtée.")
             else:
                 logging.warning("Aucun stimulateur actif à arrêter.")
@@ -324,7 +331,7 @@ class VisualizationWidget(QWidget):
         if self.stimulator is None:
             self.stimulator = St(port="COM3", show_log="Status")
             self.stimulator_is_active = True
-
+        """
         self.channels = []
         for channel, inputs in self.channel_inputs.items():
             channel_obj = Channel(
@@ -338,9 +345,10 @@ class VisualizationWidget(QWidget):
             )
 
             self.channels.append(channel_obj)
+
         if self.channels:
             self.stimulator.init_stimulation(list_channels=self.channels)
-
+        """
 
 
     def update_stimulation(self):
@@ -348,6 +356,7 @@ class VisualizationWidget(QWidget):
         self.stimConfigValue += 1
 
         if self.stimulator is not None:
+            self.channels = []
             for channel, inputs in self.channel_inputs.items():
                 # Vérifiez si le canal existe dans stimconfig, sinon, initialisez-le
                 if channel not in self.stimconfig:
@@ -367,6 +376,20 @@ class VisualizationWidget(QWidget):
                 self.stimconfig[channel]["frequency"] = inputs["frequency_input"].value()
                 self.stimconfig[channel]["mode"] = inputs["mode_input"].currentText()
                 self.stimconfig[channel]["device_type"] = Device.Rehastimp24
+
+                channel_obj_name = f"channel_{channel}"
+                channel_obj = Channel(
+                    no_channel=channel,
+                    name=inputs["name_input"].text(),
+                    amplitude=inputs["amplitude_input"].value(),
+                    pulse_width=inputs["pulse_width_input"].value(),
+                    frequency=inputs["frequency_input"].value(),
+                    mode=Modes.SINGLE,
+                    device_type=Device.Rehastimp24,
+                        )
+                setattr(self, channel_obj_name, channel_obj)
+                self.channels.append(self.channel_obj_name)
+
 
 
 
