@@ -1,5 +1,5 @@
 import sys
-from concurrent.futures import ThreadPoolExecutor
+#from concurrent.futures import ThreadPoolExecutor
 from PyQt5.QtWidgets import QApplication
 from visualization import VisualizationWidget
 from data_receiver import DataReceiver

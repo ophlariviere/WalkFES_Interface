@@ -37,6 +37,7 @@ class VisualizationWidget(QWidget):
         self.DataToPlot = self.initialize_data_to_plot()
         self.stimConfigValue = 0
         self.model = None
+        self.participant_mass = 70
         self.dolookneedsendstim=False
         self.stimulator = None
         self.stimconfig = {}  # Initialisation correcte ici
@@ -91,10 +92,21 @@ class VisualizationWidget(QWidget):
         self.button.clicked.connect(self.open_filename_dialog)
         self.label = QLabel("Aucun fichier sélectionné", self)
 
+        self.label2 = QLabel("             Participant mass [kg]:", self)
+        self.mass = QSpinBox()
+        self.mass.setRange(0, 200)
+        self.mass.valueChanged.connect(self.update_mass)
+
         layout.addWidget(self.button)
         layout.addWidget(self.label)
+        layout.addWidget(self.label2)
+        layout.addWidget(self.mass)
         groupbox.setLayout(layout)
         return groupbox
+
+
+    def update_mass(self):
+        self.participant_mass = self.mass.value()
 
     """Save part"""
     def create_save_group(self):
@@ -265,30 +277,31 @@ class VisualizationWidget(QWidget):
                 if channel in channel_to_send:
                     channel_obj = Channel(
                         no_channel=channel,
-                        name=inputs["name_input"].text(),
-                        amplitude=inputs["amplitude_input"].value(),
-                        pulse_width=inputs["pulse_width_input"].value(),
-                        frequency=inputs["frequency_input"].value(),
+                        name=self.stimconfig[channel]["name"],
+                        amplitude=self.stimconfig[channel]["amplitude"],
+                        pulse_width=self.stimconfig[channel]["pulse_width"],
+                        frequency=self.stimconfig[channel]["frequency"],
                         mode=Modes.SINGLE,
                         device_type=Device.Rehastimp24,
                     )
                 else:
                     channel_obj = Channel(
                         no_channel=channel,
-                        name=inputs["name_input"].text(),
+                        name=self.stimconfig[channel]["name"],
                         amplitude=0,
-                        pulse_width=inputs["pulse_width_input"].value(),
-                        frequency=inputs["frequency_input"].value(),
+                        pulse_width=self.stimconfig[channel]["pulse_width"],
+                        frequency=self.stimconfig[channel]["frequency"],
                         mode=Modes.SINGLE,
                         device_type=Device.Rehastimp24,
                     )
                 self.channels.append(channel_obj)
+
             if self.channels:
                 self.stimulator.init_stimulation(list_channels=self.channels)
                 self.stimulator.start_stimulation(
                     upd_list_channels=self.channels, safety=True
                 )
-            logging.info(f"Stimulation démarrée sur les canaux {channel_to_send}")
+                print(f"Stimulation démarrée sur les canaux {channel_to_send}")
         except Exception as e:
             logging.error(f"Erreur lors du démarrage de la stimulation : {e}")
 
@@ -300,7 +313,7 @@ class VisualizationWidget(QWidget):
                 self.stimulator.close_port()
                 self.stimulator_is_active = False
                 self.stimulator = None
-                logging.info("Stimulateur arrêtée.")
+                print("Stimulateur arrêtée.")
             else:
                 logging.warning("Aucun stimulateur actif à arrêter.")
         except Exception as e:
@@ -324,22 +337,6 @@ class VisualizationWidget(QWidget):
         if self.stimulator is None:
             self.stimulator = St(port="COM3", show_log="Status")
             self.stimulator_is_active = True
-
-        self.channels = []
-        for channel, inputs in self.channel_inputs.items():
-            channel_obj = Channel(
-                no_channel=channel,
-                name=inputs["name_input"].text(),
-                amplitude=inputs["amplitude_input"].value(),
-                pulse_width=inputs["pulse_width_input"].value(),
-                frequency=inputs["frequency_input"].value(),
-                mode=Modes.SINGLE, #inputs["mode_input"].currentText(),
-                device_type=Device.Rehastimp24,
-            )
-
-            self.channels.append(channel_obj)
-        if self.channels:
-            self.stimulator.init_stimulation(list_channels=self.channels)
 
 
 

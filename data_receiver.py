@@ -98,10 +98,19 @@ class DataReceiver(QObject):
             for PFnum in range(1, 3):
                 ap_force_mean = self._calculate_force_means(received_data, PFnum)
                 force_z = np.nanmean(received_data["Force"]["Force_" + str(PFnum)][2, :])
-                if self._should_start_stimulation(ap_force_mean, force_z, PFnum):
+                mass=self.visualization_widget.participant_mass
+                if self._should_start_stimulation(ap_force_mean, force_z, PFnum, mass):
+                    print(f'Appel de la fonction start stim pour PF {PFnum}' )
                     self._start_stimulation(PFnum)
-                elif self._should_stop_stimulation(ap_force_mean, force_z, PFnum):
-                    self._stop_stimulation(PFnum)
+                elif self._should_stop_stimulation(ap_force_mean, force_z, PFnum, mass):
+                    print(f'Appel de la fonction stop stim pour PF {PFnum}')
+                    if PFnum==1:
+                        PFautre=2
+                    else:
+                        PFautre=1
+
+                    if self.sendStim[str(PFautre)] is False:
+                        self._stop_stimulation(PFnum)
         except Exception as e:
             logging.error(f"Erreur lors de la stimulation : {e}")
 
@@ -137,11 +146,11 @@ class DataReceiver(QObject):
         """
         return np.nanmean(ap_force)
 
-    def _should_start_stimulation(self, ap_force_mean, Fz, PFnum):
+    def _should_start_stimulation(self, ap_force_mean, Fz, PFnum,mass):
         """Vérifie si la stimulation doit commencer."""
         return (
                 self.sendStim[str(PFnum)] is False and
-                ap_force_mean <-20 and Fz > 400
+                ap_force_mean <(-20/70)*mass and Fz > (400/70)*mass
                 and self.visualization_widget.stimulator is not None
         )
 
@@ -153,13 +162,13 @@ class DataReceiver(QObject):
         self.sendStim[str(PFnum)] = True
         self.timeStim = time.time()
 
-    def _should_stop_stimulation(self, ap_force_mean, Fz, PFnum):
+    def _should_stop_stimulation(self, ap_force_mean, Fz, PFnum, mass):
         """Vérifie si la stimulation doit s'arrêter."""
         time_since_stim = time.time() - self.timeStim
 
         return (
-                (self.sendStim[str(PFnum)] is True) and (time_since_stim>0.3)
-                 and (ap_force_mean > -1 or (time_since_stim > 1) or Fz<10)
+                (self.sendStim[str(PFnum)] is True) and (time_since_stim>0.1)
+                 and (ap_force_mean > (-1/70)*mass or (time_since_stim>1) or Fz<(10/70)*mass)
         )
 
     def _stop_stimulation(self, PFnum):

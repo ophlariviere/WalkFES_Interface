@@ -272,6 +272,7 @@ class DataProcessor:
 
     def save_cycle_data(self, cycledata):
         logging.info("Saving cycle data into separate CSV files, with rows per frame...")
+        """
         try:
             save_dir = "saved_cycles"
             if not os.path.exists(save_dir):
@@ -310,6 +311,7 @@ class DataProcessor:
 
         except Exception as e:
             logging.error(f"Error while saving data: {e}")
+        """
 
     def flatten_single_entry_with_frames(self, data, key):
         flattened_data = []
